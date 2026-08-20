@@ -40,6 +40,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 /* === Layout === */
 #app { display: flex; height: 100vh; overflow: hidden; }
 #sidebar { width: 320px; background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+#sidebar-right { width: 280px; background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #topbar { height: 48px; background: var(--panel); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0; }
 #canvas-wrap { flex: 1; overflow: hidden; position: relative; background: var(--panel-2); min-height: 0; }
@@ -318,7 +319,7 @@ body.panning * { cursor: grabbing !important; }
 
 /* === Source mode (browser source for OBS / B站直播姬) === */
 html.is-source, html.is-source body, body.source-mode, body.source-mode #app, body.source-mode #main, body.source-mode #canvas-wrap, body.source-mode #canvas-viewport, body.source-mode #stage-scaler, body.source-mode #stage { background: transparent !important; background-color: transparent !important; background-image: none !important; }
-body.source-mode #sidebar, body.source-mode #topbar, body.source-mode #status { display: none !important; }
+body.source-mode #sidebar, body.source-mode #sidebar-right, body.source-mode #topbar, body.source-mode #status { display: none !important; }
 body.source-mode, html.is-source { overflow: hidden; }
 body.source-mode #stage { border: none !important; box-shadow: none !important; }
 body.source-mode #stage-frame { display: none !important; }
@@ -357,63 +358,6 @@ body.mode-horizontal #phone-overlay { display: none !important; }
         <button class="btn small" id="clear-items">清空</button>
       </div>
       <div class="items-list" id="items-list"></div>
-    </div>
-
-    <div class="section">
-      <h3>文字</h3>
-      <div class="row" style="margin-bottom: 6px;">
-        <button class="btn small primary" id="add-text">+ 添加文字</button>
-      </div>
-      <div class="row">
-        <label>字号</label>
-        <div class="ctrl"><input type="number" id="text-font-size" min="6" max="200" value="32"></div>
-      </div>
-      <div class="row">
-        <label>字间距</label>
-        <div class="ctrl"><input type="number" id="text-letter-spacing" min="-5" max="30" value="0" step="0.5"></div>
-      </div>
-      <div class="row">
-        <label>字色</label>
-        <div class="ctrl"><input type="color" id="text-color" value="#ffffff"></div>
-      </div>
-      <div class="row">
-        <label>描边宽</label>
-        <div class="ctrl"><input type="number" id="text-stroke-width" min="0" max="20" value="2"></div>
-      </div>
-      <div class="row">
-        <label>描边色</label>
-        <div class="ctrl"><input type="color" id="text-stroke-color" value="#000000"></div>
-      </div>
-      <div class="row">
-        <label>字体</label>
-        <div class="ctrl" style="display:flex; gap:6px; align-items:center;">
-          <select id="text-font-family" style="flex:1; min-width:0;">
-            <option value="">系统默认</option>
-            <option value="PingFang SC">苹方</option>
-            <option value="Microsoft YaHei">微软雅黑</option>
-            <option value="SimHei">黑体</option>
-            <option value="SimSun">宋体</option>
-            <option value="KaiTi">楷体</option>
-            <option value="FangSong">仿宋</option>
-            <option value="JinNanYuanTi">荆南圆体</option>
-            <option value="CangErShuYuanTi">苍耳舒圆体</option>
-          </select>
-          <input type="text" id="text-font-local" placeholder="本机字体" style="flex:1; min-width:0;">
-        </div>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3>图片</h3>
-      <div class="row" style="margin-bottom: 6px;">
-        <button class="btn small" id="upload-image-btn">+ 上传图片</button>
-        <button class="btn small" id="unlock-all-btn" title="解锁画布上所有锁定的图片" style="margin-left: 6px;">解锁全部</button>
-        <button class="btn small" id="clear-images-btn" title="清空画布上的全部图片" style="margin-left: 6px;">清空</button>
-        <input type="file" id="upload-image-input" accept="image/*" style="display:none;">
-      </div>
-      <div class="row" style="margin-bottom: 6px; font-size: 12px; color: var(--text-2);">点击库内图片加到画布中央</div>
-      <div class="image-lib" id="image-lib"></div>
-      <div class="row"><span class="hint">画布上：拖动平移、4 角等比缩放（按住 Shift 自由拉伸）、4 边自由拉伸，右键可调整图层顺序。</span></div>
     </div>
 
     <div class="section">
@@ -613,6 +557,65 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       <span class="pill" id="status-mode">编辑器</span>
     </div>
   </div>
+
+  <aside id="sidebar-right">
+    <div class="section">
+      <h3>文字</h3>
+      <div class="row" style="margin-bottom: 6px;">
+        <button class="btn small primary" id="add-text">+ 添加文字</button>
+      </div>
+      <div class="row">
+        <label>字号</label>
+        <div class="ctrl"><input type="number" id="text-font-size" min="6" max="200" value="32"></div>
+      </div>
+      <div class="row">
+        <label>字间距</label>
+        <div class="ctrl"><input type="number" id="text-letter-spacing" min="-5" max="30" value="0" step="0.5"></div>
+      </div>
+      <div class="row">
+        <label>字色</label>
+        <div class="ctrl"><input type="color" id="text-color" value="#ffffff"></div>
+      </div>
+      <div class="row">
+        <label>描边宽</label>
+        <div class="ctrl"><input type="number" id="text-stroke-width" min="0" max="20" value="2"></div>
+      </div>
+      <div class="row">
+        <label>描边色</label>
+        <div class="ctrl"><input type="color" id="text-stroke-color" value="#000000"></div>
+      </div>
+      <div class="row">
+        <label>字体</label>
+        <div class="ctrl" style="display:flex; gap:6px; align-items:center;">
+          <select id="text-font-family" style="flex:1; min-width:0;">
+            <option value="">系统默认</option>
+            <option value="PingFang SC">苹方</option>
+            <option value="Microsoft YaHei">微软雅黑</option>
+            <option value="SimHei">黑体</option>
+            <option value="SimSun">宋体</option>
+            <option value="KaiTi">楷体</option>
+            <option value="FangSong">仿宋</option>
+            <option value="JinNanYuanTi">荆南圆体</option>
+            <option value="CangErShuYuanTi">苍耳舒圆体</option>
+          </select>
+          <input type="text" id="text-font-local" placeholder="本机字体" style="flex:1; min-width:0;">
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>图片</h3>
+      <div class="row" style="margin-bottom: 6px;">
+        <button class="btn small" id="upload-image-btn">+ 上传图片</button>
+        <button class="btn small" id="unlock-all-btn" title="解锁画布上所有锁定的图片" style="margin-left: 6px;">解锁全部</button>
+        <button class="btn small" id="clear-images-btn" title="清空画布上的全部图片" style="margin-left: 6px;">清空</button>
+        <input type="file" id="upload-image-input" accept="image/*" style="display:none;">
+      </div>
+      <div class="row" style="margin-bottom: 6px; font-size: 12px; color: var(--text-2);">点击库内图片加到画布中央</div>
+      <div class="image-lib" id="image-lib"></div>
+      <div class="row"><span class="hint">画布上：拖动平移、4 角等比缩放（按住 Shift 自由拉伸）、4 边自由拉伸，右键可调整图层顺序。</span></div>
+    </div>
+  </aside>
 </div>
 
 <div class="modal-back" id="picker-modal">
@@ -645,12 +648,11 @@ const state = {
   mode: 'vertical',
   canvas: { width: 1080, height: 1920 },
   menu: { x: 40, y: 40, items: [
-    { id: 'preset-1', name: '新玩法', count: 1, iconUrl: '', iconType: 'none', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-2', name: '新玩法', count: 1, iconUrl: '', iconType: 'none', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-3', name: '新玩法', count: 1, iconUrl: '', iconType: 'none', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-4', name: '新玩法', count: 1, iconUrl: '', iconType: 'none', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-5', name: '新玩法', count: 1, iconUrl: '', iconType: 'none', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-6', name: '新玩法', count: 1, iconUrl: '', iconType: 'none', side: 'right', x: null, y: null, style: null }
+    { id: 'preset-1', name: '灯牌', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/32b799120e1614fa6275b6d15da7a52b21dd019d.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null },
+    { id: 'preset-2', name: '人气票', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/4d5215da47d25b3db787d2ba5449016ee142dc80.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null },
+    { id: 'preset-3', name: '干杯', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/36df5d8eacee97e0c0707673bff27a95703ff602.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null },
+    { id: 'preset-4', name: '心动盲盒', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/ddeeaa0dfcff67b4e70945a91dd0ea4e5386d033.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null },
+    { id: 'preset-5', name: '舰长', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/0efea19bfa51a885060ffb27117cb599603a317d.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null }
   ] },
   textItems: [],
   textSelection: null,
