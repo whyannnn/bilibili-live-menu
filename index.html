@@ -659,13 +659,18 @@ const state = {
   mode: 'vertical',
   canvas: { width: 1080, height: 1920 },
   menu: { x: 40, y: 40, items: [
-    { id: 'preset-1', name: '灯牌', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/32b799120e1614fa6275b6d15da7a52b21dd019d.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-2', name: '人气票', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/4d5215da47d25b3db787d2ba5449016ee142dc80.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-3', name: '干杯', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/36df5d8eacee97e0c0707673bff27a95703ff602.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-4', name: '心动盲盒', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/ddeeaa0dfcff67b4e70945a91dd0ea4e5386d033.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null },
-    { id: 'preset-5', name: '舰长', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/0efea19bfa51a885060ffb27117cb599603a317d.webp', iconType: 'lib', side: 'left',  x: null, y: null, style: null }
+    { id: 'preset-1', name: '灯牌', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/32b799120e1614fa6275b6d15da7a52b21dd019d.webp', iconType: 'lib', side: 'left',  x: 72, y: 380, style: null },
+    { id: 'preset-2', name: '人气票', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/4d5215da47d25b3db787d2ba5449016ee142dc80.webp', iconType: 'lib', side: 'left',  x: 72, y: 410, style: null },
+    { id: 'preset-3', name: '干杯', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/36df5d8eacee97e0c0707673bff27a95703ff602.webp', iconType: 'lib', side: 'left',  x: 72, y: 440, style: null },
+    { id: 'preset-4', name: '心动盲盒', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/ddeeaa0dfcff67b4e70945a91dd0ea4e5386d033.webp', iconType: 'lib', side: 'left',  x: 72, y: 470, style: null },
+    { id: 'preset-5', name: '舰长', count: 1, iconUrl: 'https://i0.hdslb.com/bfs/live/0efea19bfa51a885060ffb27117cb599603a317d.webp', iconType: 'lib', side: 'left',  x: 72, y: 500, style: null }
   ] },
-  textItems: [],
+  textItems: [
+    { id: 'preset-t1', text: 'IOS用户请到哔哩哔哩直播公众号充值哦~', x: 72, y: 110, w: 400, fontSize: 20, color: '#ffffff', strokeWidth: 2, strokeColor: '#000000', fontFamily: '', fontWeight: '900', letterSpacing: 1.5, z: 0 },
+    { id: 'preset-t2', text: '周任务', x: 72, y: 200, w: 200, fontSize: 20, color: '#ffffff', strokeWidth: 2, strokeColor: '#000000', fontFamily: '', fontWeight: '900', letterSpacing: 1.5, z: 0 },
+    { id: 'preset-t3', text: '舰长：   /5', x: 180, y: 200, w: 200, fontSize: 20, color: '#ff3344', strokeWidth: 2, strokeColor: '#000000', fontFamily: '', fontWeight: '900', letterSpacing: 1.5, z: 0 },
+    { id: 'preset-t4', text: '心动盲盒：        /150', x: 180, y: 230, w: 240, fontSize: 20, color: '#ff3344', strokeWidth: 2, strokeColor: '#000000', fontFamily: '', fontWeight: '900', letterSpacing: 1.5, z: 0 }
+  ],
   textSelection: null,
   selection: [],
   phoneOverlay: false,
