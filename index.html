@@ -2862,6 +2862,15 @@ async function init() {
   // 否则 source mode 下图标会全部丢失。
   await loadGifts();
 
+  // ?reset=1：彻底重置。数据有三份拷贝（localStorage / URL hash / ?d= 参数），
+  // 手动删 localStorage 没用——hash 优先级更高会把旧数据灌回来。
+  // 这里清 localStorage + 洗掉 URL 上的 query 和 hash，让后面加载链自然落到默认值。
+  if (params.has('reset')) {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    history.replaceState(null, '', location.pathname);
+    state.lastCopiedHash = '';
+  }
+
   // 数据加载优先级：?d=（query 参数，CEF 友好）> hash > localStorage
   let loaded = false;
   const fromQuery = params.get('d');
