@@ -575,7 +575,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       </div>
       <div class="row">
         <label>字号</label>
-        <div class="ctrl"><input type="number" id="text-font-size" min="6" max="200" value="32"></div>
+        <div class="ctrl"><input type="number" id="text-font-size" min="6" max="200" value="24"></div>
       </div>
       <div class="row">
         <label>字间距</label>
@@ -2553,7 +2553,7 @@ function setupControls() {
       text: DEFAULT_TEXT,
       x: 100, y: 100,
       w: 400,
-      fontSize: parseInt($('#text-font-size').value) || 32,
+      fontSize: parseInt($('#text-font-size').value) || 24,
       color: $('#text-color').value,
       strokeWidth: parseInt($('#text-stroke-width').value) || 2,
       strokeColor: $('#text-stroke-color') ? $('#text-stroke-color').value : '#000000',
