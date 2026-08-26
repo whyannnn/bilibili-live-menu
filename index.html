@@ -435,10 +435,6 @@ body.mode-horizontal #phone-overlay { display: none !important; }
         <div class="ctrl"><input type="number" id="sel-row-gap" min="-30" max="60" value="4"></div>
       </div>
       <div class="row">
-        <label>列宽</label>
-        <div class="ctrl"><input type="number" id="sel-col-width" min="60" max="600" value="200"></div>
-      </div>
-      <div class="row">
         <label>行高</label>
         <div class="ctrl"><input type="number" id="sel-row-height" min="30" max="200" value="60"></div>
       </div>
@@ -1198,7 +1194,7 @@ function renderMenuItems() {
     }
     el.style.left = x + 'px';
     el.style.top = y + 'px';
-    el.style.width = st.colWidth + 'px';
+    // 列宽自适应：宽度不设，让 flex 容器按内容自然撑开
     el.style.height = st.rowHeight + 'px';
 
     const hasIcon = item.iconUrl && item.iconType !== 'none';
@@ -1302,6 +1298,10 @@ function renderMenuItems() {
       ]);
     };
     container.appendChild(el);
+    // 渲染后用浏览器实测宽度/高度缓存起来，给 autoPosition / marquee / 对齐参考线用
+    // （autoPosition 走的是 getItemWidth，优先用 _w 实测值）
+    item._w = el.offsetWidth;
+    item._h = el.offsetHeight;
   });
 }
 
@@ -1486,11 +1486,41 @@ function autoPosition(item, idx) {
   const gap = st.rowGap;
   const side = item.side || 'left';
   const leftX = s.leftX;
-  const rightX = s.rightX != null ? s.rightX : (state.canvas.width - colWidth - 40);
-  const baseX = side === 'left' ? leftX : rightX;
+  // 右侧玩法右边缘贴右边距 40：x = canvas.width - 40 - 自适应宽度
+  // 左侧玩法 x 固定在 leftX：宽度自适应撑开
+  const estW = getItemWidth(item, st);
+  const rightEdge = state.canvas.width - 40;
+  const baseX = side === 'left' ? leftX : (rightEdge - estW);
   const sameSide = state.menu.items.filter(it => (it.side || 'left') === side);
   const idxInSide = sameSide.indexOf(item);
   return { x: baseX, y: s.topY + idxInSide * (rowH + gap) };
+}
+
+// 用 canvas measureText 估算文字宽度，给 autoPosition / marquee / 对齐参考线用
+const _measureCanvas = document.createElement('canvas');
+const _measureCtx = _measureCanvas.getContext('2d');
+function measureTextWidth(text, st) {
+  _measureCtx.font = `${st.fontWeight || 700} ${st.fontSize || 32}px '${st.fontFamily || ''}', ${st.fontFamily ? 'sans-serif' : 'sans-serif'}`;
+  let w = _measureCtx.measureText(text || '').width;
+  if (st.letterSpacing) w += Math.max(0, (text || '').length - 1) * st.letterSpacing;
+  return w;
+}
+// 估算 menu-item 的总宽度：图标 + iconGap + count + name + padding
+// 渲染时浏览器会用 offsetWidth 实测，本函数给"未渲染"阶段（autoPosition/marquee/对齐）使用
+function getItemWidth(item, st) {
+  // 优先用 renderMenuItems 渲染后缓存的实际宽度
+  if (item._w && item._w > 0) return item._w;
+  const hasIcon = item.iconUrl && item.iconType !== 'none';
+  const iconW = hasIcon ? (st.iconSize || 0) : 0;
+  const iconGap = hasIcon ? (st.iconGap || 0) : 0;
+  let nameW = measureTextWidth(item.name || '', st);
+  let countText = '';
+  if (st.showNumbers && item.count) {
+    countText = (item.side || 'left') === 'right' ? `${item.count}×` : `×${item.count}`;
+  }
+  const countW = countText ? measureTextWidth(countText, st) + 6 : 0;
+  // padding 估算：左右各 8px
+  return Math.ceil(iconW + iconGap + countW + nameW + 16);
 }
 
 /* ============== Image items ============== */
@@ -1978,7 +2008,6 @@ function updateSelStylePanel() {
   $('#sel-text-color').value = first.textColor;
   $('#sel-letter-spacing').value = first.letterSpacing;
   $('#sel-row-gap').value = state.style.rowGap;  // 全局 rowGap（不是 per-item）
-  $('#sel-col-width').value = first.colWidth;
   $('#sel-row-height').value = first.rowHeight;
   $('#sel-show-bg').checked = first.bgOn;
   $('#sel-bg-color').value = first.bgColor;
@@ -2001,7 +2030,7 @@ function alignSelection(direction) {
   const positions = selected.map(it => {
     const pos = getItemPos(it);
     const st = getEffectiveStyle(it);
-    return { item: it, x: pos.x, y: pos.y, w: st.colWidth, h: st.rowHeight };
+    return { item: it, x: pos.x, y: pos.y, w: getItemWidth(it, st), h: st.rowHeight };
   });
   let target;
   if (direction === 'left') {
@@ -2212,7 +2241,8 @@ function applySnapGuides(dragIds) {
     if (dragIds.includes(it.id)) return;
     const pos = getItemPos(it);
     const st = getEffectiveStyle(it);
-    vTargets.push(pos.x, pos.x + st.colWidth / 2, pos.x + st.colWidth);
+    const w = getItemWidth(it, st);
+    vTargets.push(pos.x, pos.x + w / 2, pos.x + w);
     hTargets.push(pos.y, pos.y + st.rowHeight / 2, pos.y + st.rowHeight);
   });
 
@@ -2222,7 +2252,8 @@ function applySnapGuides(dragIds) {
   dragged.forEach(it => {
     const pos = getItemPos(it);
     const st = getEffectiveStyle(it);
-    const myV = [pos.x, pos.x + st.colWidth / 2, pos.x + st.colWidth];
+    const w = getItemWidth(it, st);
+    const myV = [pos.x, pos.x + w / 2, pos.x + w];
     const myH = [pos.y, pos.y + st.rowHeight / 2, pos.y + st.rowHeight];
     myV.forEach(v => {
       vTargets.forEach(t => {
@@ -2315,7 +2346,7 @@ function setupMarquee() {
       const ix = item.x != null ? item.x : 0;
       const iy = item.y != null ? item.y : 0;
       const st = getEffectiveStyle(item);
-      const iw = st.colWidth;
+      const iw = getItemWidth(item, st);
       const ih = st.rowHeight;
       if (ix < x + w && ix + iw > x && iy < y + h && iy + ih > y) {
         sel.push(item.id);
@@ -2550,20 +2581,10 @@ function setupControls() {
     render();
     saveState();
   };
-  // 列宽：右侧玩法的图标固定在右端，左边拉长；左侧玩法左边固定，右边拉长
-  $('#sel-col-width').oninput = () => {
-    const v = parseInt($('#sel-col-width').value) || 200;
-    state.menu.items.forEach(item => {
-      if (!state.selection.includes(item.id)) return;
-      if (!item.style) item.style = {};
-      const oldW = item.style.colWidth != null ? item.style.colWidth : state.style.colWidth;
-      item.style.colWidth = v;
-      // 右侧玩法：右端（图标端）位置固定，x 跟着 colWidth 反向调整
-      if ((item.side || 'left') === 'right' && item.x != null) {
-        const rightEdge = item.x + oldW;
-        item.x = rightEdge - v;
-      }
-    });
+  $('#sel-row-gap').oninput = () => {
+    state.style.rowGap = parseInt($('#sel-row-gap').value) || 0;
+    // gap 改了之后所有 item 都得重排
+    state.menu.items.forEach(it => { it.x = null; it.y = null; });
     render();
     saveState();
   };
