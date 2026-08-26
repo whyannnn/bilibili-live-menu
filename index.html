@@ -2087,6 +2087,14 @@ function setupInteraction() {
   const viewport = $('#canvas-viewport');
   const wrap = $('#canvas-wrap');
 
+  // 点击画布（对象/空白）时释放侧栏输入框焦点，确保之后 Backspace/Delete 能一键删除选中对象
+  // 捕获阶段监听：先于各元素的 mousedown（含 stopPropagation 的文字/玩法项）执行
+  document.addEventListener('mousedown', e => {
+    if (e.target.closest('input,textarea,select')) return; // 点击的就是输入框，不动
+    const ae = document.activeElement;
+    if (ae && ae.tagName && ae.matches('input,textarea,select')) ae.blur();
+  }, true);
+
   // Space key for pan
   window.addEventListener('keydown', e => {
     if (e.target.matches('input,textarea,select')) return;
