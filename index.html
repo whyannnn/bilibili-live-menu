@@ -368,6 +368,10 @@ body.mode-horizontal #phone-overlay { display: none !important; }
         <button class="btn small primary" id="add-item">+ 添加项</button>
         <button class="btn small" id="clear-items">清空</button>
       </div>
+      <div class="row" style="margin-bottom: 6px;">
+        <button class="btn small" id="check-icon-update" title="从 gift.shuvi.moe 检查是否有新图标，自动添加到玩法项">🔄 检查更新</button>
+        <span id="icon-update-status" style="font-size:11px;color:var(--text-dim);margin-left:6px;"></span>
+      </div>
       <div class="items-list" id="items-list"></div>
     </div>
 
@@ -2462,6 +2466,79 @@ async function loadGifts() {
   } catch (e) {
     state.gifts = [];
   }
+  // 顺便异步从 shuvi.moe 拉增量，丰富 state.gifts（不阻塞首屏）
+  fetchShuviGifts(true).catch(() => {});
+}
+
+// 从 https://gift.shuvi.moe/api/gifts 拉最新礼物数据（CORS 不允许，用 allorigins 代理）
+// silent=true 时不更新 UI 提示
+async function fetchShuviGifts(silent) {
+  const url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://gift.shuvi.moe/api/gifts');
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error('shuvi HTTP ' + res.status);
+  const data = await res.json();
+  const items = (data && data.items) || [];
+  // shuvi 字段：giftId/name/price/coinType/imageBasicUrl；缺 webp/gif，前端用 imageBasicUrl 兜底
+  const merged = items.map(it => ({
+    giftId: it.giftId, name: it.name, price: it.price, coinType: it.coinType,
+    imageBasicUrl: it.imageBasicUrl,
+    webp: it.imageBasicUrl,        // 兜底：没有 webp 时用基础图
+    gif: it.imageBasicUrl,
+    imageDynamicUrl: it.imageBasicUrl,
+    frameAnimationUrl: null
+  }));
+  // 按 giftId 合并到现有 state.gifts
+  const existingIds = new Set(state.gifts.map(g => g.giftId));
+  let added = 0;
+  merged.forEach(g => { if (!existingIds.has(g.giftId)) { state.gifts.push(g); added++; } });
+  if (!silent) {
+    const st = $('#icon-update-status');
+    if (st) st.textContent = `状态：远端+${added}个新礼物`;
+  }
+  return added;
+}
+
+// 比对 state.menu.items 与 state.gifts，找出缺失的图标，自动添加到 menu items 末尾
+async function checkAndApplyIconUpdate() {
+  const st = $('#icon-update-status');
+  if (st) st.textContent = '状态：拉取中…';
+  // 1) 确保 state.gifts 含有远端数据
+  let newFromShuvi = 0;
+  try { newFromShuvi = await fetchShuviGifts(true); } catch (e) { /* 拉失败也走本地匹配 */ }
+  // 2) 找当前 menu items 中 iconType='lib' 或有 iconUrl 但 gift 不在 state.gifts 的项
+  //    简化策略：把所有 gifts 里还没出现在 menu items（按 name 或 imageBasicUrl/webp 后缀）里的，统一追加
+  const haveUrls = new Set(state.menu.items.map(it => it.iconUrl).filter(Boolean));
+  const itemsToAdd = [];
+  // 优先看 state.gifts 里没有 iconUrl 的 (即原先没图标)，跳过已有
+  for (const g of state.gifts) {
+    const url = g.webp || g.imageBasicUrl;
+    if (!url) continue;
+    if (haveUrls.has(url)) continue;
+    // 避免把 removedRunId 不为空的旧礼物也加进来
+    if (g.removedRunId != null && g.removedRunId !== undefined) continue;
+    itemsToAdd.push(g);
+  }
+  // 只取前 12 个避免一次性堆太多
+  const top = itemsToAdd.slice(0, 12);
+  if (top.length === 0) {
+    if (st) st.textContent = '已是最新，无需更新';
+    return;
+  }
+  // 3) 自动追加新玩法项（用 gifts 里的 webp 作为 iconUrl）
+  top.forEach(g => {
+    state.menu.items.push({
+      id: uid(),
+      name: g.name,
+      count: 1,
+      side: 'left',
+      iconType: 'lib',
+      iconUrl: g.webp || g.imageBasicUrl
+    });
+  });
+  // 4) 持久化
+  saveState();
+  render();
+  if (st) st.textContent = `状态：新增 ${top.length} 个图标到玩法项`;
 }
 
 // 图标 URL ↔ giftId 压缩：URL 里存 g<giftId>（6字符）而非完整 URL（90字符）
@@ -2508,6 +2585,23 @@ function renderPickerGrid(search) {
   });
 }
 
+/* ============== Daily icon check ============== */
+// 每天 12:00 自动执行 checkAndApplyIconUpdate（仅编辑器模式）
+function scheduleDailyIconCheck() {
+  if (document.body.classList.contains('source-mode') || document.body.classList.contains('phone-mode')) return;
+  const computeDelay = () => {
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+    if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+    return next.getTime() - now.getTime();
+  };
+  const tick = () => {
+    checkAndApplyIconUpdate().catch(() => {});
+    setTimeout(tick, 24 * 3600 * 1000);
+  };
+  setTimeout(tick, computeDelay());
+}
+
 /* ============== Controls ============== */
 function setupControls() {
   // Mode
@@ -2537,6 +2631,17 @@ function setupControls() {
       state.selection = [];
       render();
     }
+  };
+
+  // 检查图标库更新
+  $('#check-icon-update').onclick = async (e) => {
+    e.target.disabled = true;
+    try { await checkAndApplyIconUpdate(); }
+    catch (err) {
+      const st = $('#icon-update-status');
+      if (st) st.textContent = '失败：' + (err.message || '网络异常');
+    }
+    finally { e.target.disabled = false; }
   };
 
   $('#clear-all').onclick = () => {
@@ -3000,6 +3105,9 @@ async function init() {
   setupImageItemDrag();
   applyMode();
   render();
+
+  // 每天 12:00 自动检查图标更新（仅编辑器模式）
+  scheduleDailyIconCheck();
 
   // Source mode 兜底：用 setProperty + !important 把所有可能的容器强制透明。
   // 直播姬 CEF 对 CSS 选择器经常失效，必须内联样式强写并多帧兜底。
