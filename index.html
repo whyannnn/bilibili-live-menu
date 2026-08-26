@@ -160,8 +160,8 @@ body.mode-horizontal #cover-mask { display: block; }
   position: absolute;
   display: block;
   cursor: grab;
-  white-space: nowrap;
-  overflow: hidden;
+  white-space: pre;          /* 保留 \n 换行，不自动换行（按字数自适应宽） */
+  overflow: visible;
   padding: 4px 8px;
   border: 1px dashed transparent;
   pointer-events: auto;
@@ -386,7 +386,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
         <div class="ctrl">
           <select id="sel-font-weight">
             <option value="400">正常</option>
-            <option value="700" selected>加粗</option>
+            <option value="900" selected>加粗</option>
           </select>
         </div>
       </div>
@@ -577,7 +577,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       </div>
       <div class="row">
         <label>字号</label>
-        <div class="ctrl"><input type="number" id="text-font-size" min="6" max="200" value="24"></div>
+        <div class="ctrl"><input type="number" id="text-font-size" min="6" max="200" value="20"></div>
       </div>
       <div class="row">
         <label>字间距</label>
@@ -684,7 +684,7 @@ const state = {
     fontFamily: 'system-ui',
     customFontLoaded: false,
     fontStyle: 'normal',
-    fontWeight: '700',
+    fontWeight: '900',
     fontSize: 20,
     letterSpacing: 2,
     textColor: '#ffffff',
@@ -780,7 +780,7 @@ function loadState() {
       w: t.w || null, fontSize: t.sz || 32, color: t.c || '#ffffff',
       strokeWidth: t.sw || 2, strokeColor: t.sc || '#000000',
       fontFamily: t.ff || '',
-      fontWeight: String(t.fw) === '400' ? '400' : '700',
+      fontWeight: String(t.fw) === '400' ? '400' : '900',
       letterSpacing: t.ls != null ? t.ls : 0,
       z: t.z || 0
     }));
@@ -814,7 +814,7 @@ function loadState() {
       if (d.s.bR != null) s.bgRadius = d.s.bR;
       if (d.s.fF) s.fontFamily = d.s.fF;
       if (d.s.fS) s.fontStyle = d.s.fS;
-      if (d.s.fW) s.fontWeight = String(d.s.fW) === '400' ? '400' : '700';
+      if (d.s.fW) s.fontWeight = String(d.s.fW) === '400' ? '400' : '900';
       if (d.s.fZ != null) s.fontSize = d.s.fZ;
       if (d.s.lS != null) s.letterSpacing = d.s.lS;
       if (d.s.tC) s.textColor = d.s.tC;
@@ -859,7 +859,7 @@ const DEFAULT_STYLE = {
   rowGap: 5, showNumbers: true, showBackground: true,
   bgColor: '#000000', bgOpacity: 0.3, bgRadius: 24,
   fontFamily: 'system-ui', customFontLoaded: false,
-  fontStyle: 'normal', fontWeight: '700', fontSize: 20,
+  fontStyle: 'normal', fontWeight: '900', fontSize: 20,
   letterSpacing: 2, textColor: '#ffffff', strokeColor: '#000000',
   strokeWidth: 1, shadowX: 1, shadowY: -1, shadowBlur: 5,
   shadowColor: '#000000', iconSize: 37, iconGap: 0
@@ -929,7 +929,7 @@ function updateHash() {
         if (t.strokeWidth !== 2) o.sw = t.strokeWidth;
         if (t.strokeColor !== '#000000') o.sc = t.strokeColor;
         if (t.fontFamily) o.ff = t.fontFamily;
-        if (t.fontWeight !== '700') o.fw = t.fontWeight;
+        if (t.fontWeight !== '900') o.fw = t.fontWeight;
         if (t.letterSpacing) o.ls = t.letterSpacing;
         if (Object.keys(o).length) a.push(o);
         return a;
@@ -997,7 +997,7 @@ function applyLoadedData(d) {
             id: uid(), text: a[0] || '', x: a[1] || 0, y: a[2] || 0,
             w: null, fontSize: 32, color: '#ffffff',
             strokeWidth: 2, strokeColor: '#000000',
-            fontFamily: '', fontWeight: '700',
+            fontFamily: '', fontWeight: '900',
             letterSpacing: o.ls != null ? o.ls : 0,
             z: 0,
             ...o
@@ -1032,7 +1032,7 @@ function applyLoadedData(d) {
         id: t.id || uid(), text: t.txt || '', x: t.x || 0, y: t.y || 0,
         w: t.w || null, fontSize: t.sz || 32, color: t.c || '#ffffff',
         strokeWidth: t.sw || 2, strokeColor: t.sc || '#000000',
-        fontFamily: t.ff || '', fontWeight: String(t.fw) === '400' ? '400' : '700',
+        fontFamily: t.ff || '', fontWeight: String(t.fw) === '400' ? '400' : '900',
         letterSpacing: t.ls != null ? t.ls : 0
       }));
       if (d.s) Object.assign(state.style, d.s);
@@ -1378,7 +1378,7 @@ function renderTextItems() {
     el.style.top = t.y + 'px';
     if (t.w) el.style.width = t.w + 'px';
     el.style.fontFamily = t.fontFamily ? `'${t.fontFamily}', sans-serif` : 'inherit';
-    el.style.fontWeight = t.fontWeight || '700';
+    el.style.fontWeight = t.fontWeight || '900';
     el.style.fontSize = t.fontSize + 'px';
     el.style.letterSpacing = (t.letterSpacing || 0) + 'px';
     el.style.color = t.color;
@@ -1428,15 +1428,14 @@ function renderTextItems() {
     el.ondblclick = (e) => {
       e.stopPropagation();
       const oldText = t.text || '';
-      const input = document.createElement('input');
-      input.type = 'text';
+      const input = document.createElement('textarea');
       input.value = oldText;
       const ff = t.fontFamily ? `'${t.fontFamily}',sans-serif` : 'inherit';
-      const fw = t.fontWeight || '700';
-      const fs = (t.fontSize || 32) + 'px';
+      const fw = t.fontWeight || '900';
+      const fs = (t.fontSize || 20) + 'px';
       const ls = (t.letterSpacing || 0) + 'px';
       const fg = t.color || '#ffffff';
-      input.style.cssText = `width:100%;height:100%;min-height:1em;border:2px solid #ff69b4;background:rgba(0,0,0,0.7);font-family:${ff};font-weight:${fw};font-size:${fs};letter-spacing:${ls};color:${fg};text-align:left;outline:none;padding:2px 4px;margin:0;box-sizing:border-box;border-radius:4px;`;
+      input.style.cssText = `width:100%;height:100%;min-height:1.2em;border:2px solid #ff69b4;background:rgba(0,0,0,0.7);font-family:${ff};font-weight:${fw};font-size:${fs};letter-spacing:${ls};color:${fg};text-align:left;outline:none;padding:0 4px;margin:0;box-sizing:border-box;border-radius:4px;resize:none;white-space:pre-wrap;overflow:hidden;`;
       el.textContent = '';
       el.appendChild(input);
       input.focus();
@@ -1450,6 +1449,7 @@ function renderTextItems() {
         saveState();
       };
       input.onkeydown = (ev) => {
+        if (ev.key === 'Enter' && ev.ctrlKey) return;  // Ctrl+Enter → 插入 \n（让 textarea 自己处理）
         if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
         else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
       };
@@ -1532,7 +1532,7 @@ function autoPosition(item, idx) {
 const _measureCanvas = document.createElement('canvas');
 const _measureCtx = _measureCanvas.getContext('2d');
 function measureTextWidth(text, st) {
-  _measureCtx.font = `${st.fontWeight || 700} ${st.fontSize || 32}px '${st.fontFamily || ''}', ${st.fontFamily ? 'sans-serif' : 'sans-serif'}`;
+  _measureCtx.font = `${st.fontWeight || 900} ${st.fontSize || 32}px '${st.fontFamily || ''}', ${st.fontFamily ? 'sans-serif' : 'sans-serif'}`;
   let w = _measureCtx.measureText(text || '').width;
   if (st.letterSpacing) w += Math.max(0, (text || '').length - 1) * st.letterSpacing;
   return w;
@@ -2030,7 +2030,7 @@ function updateSelStylePanel() {
   $('#sel-style-count').textContent = items.length;
   const first = getEffectiveStyle(items[0]);
   $('#sel-font-size').value = first.fontSize;
-  $('#sel-font-weight').value = String(first.fontWeight) === '400' ? '400' : '700';
+  $('#sel-font-weight').value = String(first.fontWeight) === '400' ? '400' : '900';
   $('#sel-stroke-color').value = first.strokeColor;
   $('#sel-stroke-width').value = first.strokeWidth;
   $('#sel-shadow-x').value = first.shadowX;
@@ -2647,12 +2647,12 @@ function setupControls() {
       text: DEFAULT_TEXT,
       x: 100, y: 100,
       w: 400,
-      fontSize: parseInt($('#text-font-size').value) || 24,
+      fontSize: parseInt($('#text-font-size').value) || 20,
       color: $('#text-color').value,
       strokeWidth: parseInt($('#text-stroke-width').value) || 2,
       strokeColor: $('#text-stroke-color') ? $('#text-stroke-color').value : '#000000',
       fontFamily: ($('#text-font-local').value || $('#text-font-family').value || '').trim(),
-      fontWeight: '700',
+      fontWeight: '900',
       letterSpacing: $('#text-letter-spacing') ? (parseFloat($('#text-letter-spacing').value) || 2) : 2
     };
     state.textItems.push(t);
