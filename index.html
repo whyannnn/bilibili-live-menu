@@ -46,7 +46,12 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 #sidebar-right { width: 280px; background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #topbar { height: 48px; background: var(--panel); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0; }
-#canvas-wrap { flex: 1; overflow: hidden; position: relative; background: var(--panel-2); min-height: 0; }
+#canvas-wrap { flex: 1; overflow: auto; position: relative; background: var(--panel-2); min-height: 0; padding: 24px; }
+#canvas-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+#canvas-wrap::-webkit-scrollbar-thumb { background: #5a5a5a; border-radius: 5px; }
+#canvas-wrap::-webkit-scrollbar-thumb:hover { background: #777; }
+#canvas-wrap::-webkit-scrollbar-track { background: var(--panel-2); }
+#canvas-scroll-inner { position: relative; min-width: 100%; min-height: 100%; display: flex; align-items: center; justify-content: center; }
 
 /* === Sidebar sections === */
 .section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
@@ -80,9 +85,9 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 
 /* === Canvas === */
 /* 画布容器：深灰底，溢出隐藏（用 scrollLeft/Top 平移） */
-#canvas-viewport { position: absolute; inset: 0; overflow: hidden; }
+#canvas-viewport { position: relative; flex-shrink: 0; }
 /* scaler：承载缩放变换，尺寸=画布原始尺寸，用 transform: scale 缩放 */
-#stage-scaler { position: absolute; transform-origin: 0 0; }
+#stage-scaler { position: relative; transform-origin: 0 0; }
 /* stage：画布本体，1080×1920 或 1920×1080，透明底 + 格子参考线 */
 #stage {
   position: relative;
@@ -144,7 +149,7 @@ body.mode-horizontal #cover-mask { display: block; }
 .menu-item:nth-child(5n+4) .icon { animation-delay: 0.75s; }
 .menu-item:nth-child(5n+5) .icon { animation-delay: 1s; }
 .menu-item.selected .icon { animation-play-state: paused; }
-.menu-item .text { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: visible; width: 100%; height: 100%; }
+.menu-item .text { display: flex; align-items: center; min-width: 0; flex: 1; overflow: visible; width: 100%; height: 100%; }
 .menu-item .count { flex-shrink: 0; }
 .menu-item .name { white-space: nowrap; overflow: visible; text-overflow: clip; }
 .menu-item.no-icon .text { flex: 1; }
@@ -324,6 +329,9 @@ body.panning * { cursor: grabbing !important; }
 html.is-source, html.is-source body, body.source-mode, body.source-mode #app, body.source-mode #main, body.source-mode #canvas-wrap, body.source-mode #canvas-viewport, body.source-mode #stage-scaler, body.source-mode #stage { background: transparent !important; background-color: transparent !important; background-image: none !important; }
 body.source-mode #sidebar, body.source-mode #sidebar-right, body.source-mode #topbar, body.source-mode #status { display: none !important; }
 body.source-mode, html.is-source { overflow: hidden; }
+body.source-mode #canvas-wrap { overflow: hidden !important; padding: 0 !important; }
+body.source-mode #canvas-scroll-inner { min-width: 100%; min-height: 100%; }
+body.source-mode #stage-scaler { position: absolute; }
 body.source-mode #stage { border: none !important; box-shadow: none !important; }
 body.source-mode #stage-frame { display: none !important; }
 body.source-mode #cover-mask { display: none !important; }
@@ -489,7 +497,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       </div>
       <div class="row">
         <label>图标间距</label>
-        <div class="ctrl"><input type="number" id="icon-gap" min="0" max="40" value="10"></div>
+        <div class="ctrl"><input type="number" id="icon-gap" min="-10" max="40" value="4" step="1"></div>
       </div>
     </div>
 
@@ -516,6 +524,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       <button class="btn primary" id="export-png">导出透明 PNG</button>
     </div>
     <div id="canvas-wrap">
+      <div id="canvas-scroll-inner">
       <div id="canvas-viewport">
         <div id="stage-scaler">
           <div id="stage">
@@ -547,6 +556,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
     <div id="status">
@@ -683,7 +693,7 @@ const state = {
     shadowBlur: 5,
     shadowColor: '#000000',
     iconSize: 37,
-    iconGap: 6
+    iconGap: 4
   },
   showSafe: false,
   zoom: 1,
@@ -850,7 +860,7 @@ const DEFAULT_STYLE = {
   fontStyle: 'normal', fontWeight: '700', fontSize: 20,
   letterSpacing: 0, textColor: '#ffffff', strokeColor: '#000000',
   strokeWidth: 1, shadowX: 1, shadowY: -1, shadowBlur: 5,
-  shadowColor: '#000000', iconSize: 37, iconGap: 6
+  shadowColor: '#000000', iconSize: 37, iconGap: 4
 };
 
 // per-item style 紧凑 key 映射（缩短 URL）
@@ -1075,12 +1085,26 @@ function applyTransform() {
     scaler.style.transform = `scale(${s})`;
     scaler.style.transformOrigin = '0 0';
   } else {
-    // 编辑器模式：用户缩放 + 平移
-    scaler.style.left = '0px';
-    scaler.style.top = '0px';
+    // 编辑器模式：用户缩放 + 平移（用 wrap 滚动条作为平移机制）
+    const s = state.zoom;
+    const vp = $('#canvas-viewport');
+    const w = state.canvas.width * s;
+    const h = state.canvas.height * s;
+    vp.style.width = w + 'px';
+    vp.style.height = h + 'px';
     scaler.style.width = state.canvas.width + 'px';
     scaler.style.height = state.canvas.height + 'px';
-    scaler.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    scaler.style.transform = `scale(${s})`;
+    scaler.style.transformOrigin = '0 0';
+    // 把 panX/panY 应用到 wrap 滚动（保持缩放/平移同步）
+    // 滚动后会把新值同步回 state.panX/panY（scroll 监听器）
+    const centerScrollX = (wrap.scrollWidth - wrap.clientWidth) / 2;
+    const centerScrollY = (wrap.scrollHeight - wrap.clientHeight) / 2;
+    if (Math.abs(wrap.scrollLeft - (centerScrollX + state.panX)) > 1 ||
+        Math.abs(wrap.scrollTop - (centerScrollY + state.panY)) > 1) {
+      wrap.scrollLeft = centerScrollX + state.panX;
+      wrap.scrollTop = centerScrollY + state.panY;
+    }
   }
   updateZoomLabel();
 }
@@ -1091,10 +1115,15 @@ function fitToWindow() {
   const h = wrap.clientHeight - 48;
   state.zoom = Math.min(w / state.canvas.width, h / state.canvas.height, 1);
   state.zoom = Math.max(0.05, state.zoom);
-  state.panX = (wrap.clientWidth - state.canvas.width * state.zoom) / 2;
-  state.panY = (wrap.clientHeight - state.canvas.height * state.zoom) / 2;
+  state.panX = 0;
+  state.panY = 0;
   applyTransform();
-  saveState();
+  // 等浏览器布局完成，让 wrap 滚动到中心
+  requestAnimationFrame(() => {
+    wrap.scrollLeft = (wrap.scrollWidth - wrap.clientWidth) / 2;
+    wrap.scrollTop = (wrap.scrollHeight - wrap.clientHeight) / 2;
+    saveState();
+  });
 }
 
 function updateZoomLabel() {
@@ -1231,6 +1260,7 @@ function renderMenuItems() {
       ? `${namePart} ${countPart}`
       : `${countPart}${countPart ? ' ' : ''}${namePart}`;
     html += `<div class="text" data-id="${item.id}" style="` +
+      `display:flex;align-items:center;gap:${iconGap}px;` +
       `font-family:'${st.fontFamily}',sans-serif;` +
       `font-style:${st.fontStyle};` +
       `font-weight:${st.fontWeight};` +
@@ -2092,12 +2122,13 @@ function setupInteraction() {
     }
   });
 
-  // Pan: space+drag or middle mouse
-  let panning = false, panStart = { x: 0, y: 0, px: 0, py: 0 };
+  // Pan: space+drag or middle mouse — 用 wrap 滚动条作为平移
+  let panning = false, panStart = { x: 0, y: 0, sx: 0, sy: 0 };
   viewport.addEventListener('mousedown', e => {
     if (spaceDown || e.button === 1) {
       panning = true;
-      panStart = { x: e.clientX, y: e.clientY, px: state.panX, py: state.panY };
+      const wrap = $('#canvas-wrap');
+      panStart = { x: e.clientX, y: e.clientY, sx: wrap.scrollLeft, sy: wrap.scrollTop };
       document.body.classList.add('panning');
       e.preventDefault();
       return;
@@ -2111,9 +2142,9 @@ function setupInteraction() {
   });
   window.addEventListener('mousemove', e => {
     if (panning) {
-      state.panX = panStart.px + (e.clientX - panStart.x);
-      state.panY = panStart.py + (e.clientY - panStart.y);
-      applyTransform();
+      const wrap = $('#canvas-wrap');
+      wrap.scrollLeft = panStart.sx - (e.clientX - panStart.x);
+      wrap.scrollTop = panStart.sy - (e.clientY - panStart.y);
     }
   });
   window.addEventListener('mouseup', () => {
@@ -2124,7 +2155,7 @@ function setupInteraction() {
     }
   });
 
-  // Zoom: Alt+wheel
+  // Zoom: Alt+wheel — 以鼠标位置为锚点缩放
   wrap.addEventListener('wheel', e => {
     if (document.body.classList.contains('source-mode')) return;
     if (!e.altKey && !e.ctrlKey && !e.metaKey) return;
@@ -2132,26 +2163,71 @@ function setupInteraction() {
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     const newZoom = Math.max(0.05, Math.min(6, state.zoom * factor));
     if (newZoom === state.zoom) return;
-    // 以鼠标位置为中心缩放
+    // 鼠标下的内容坐标（canvas 内坐标）
     const rect = wrap.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    state.panX = mx - (mx - state.panX) * (newZoom / state.zoom);
-    state.panY = my - (my - state.panY) * (newZoom / state.zoom);
+    const oldZoom = state.zoom;
+    const oldScrollX = wrap.scrollLeft;
+    const oldScrollY = wrap.scrollTop;
+    const cx = (oldScrollX + mx) / oldZoom;
+    const cy = (oldScrollY + my) / oldZoom;
     state.zoom = newZoom;
     applyTransform();
-    saveState();
+    // 缩放后让 (cx, cy) 仍落在鼠标下
+    requestAnimationFrame(() => {
+      const maxX = wrap.scrollWidth - wrap.clientWidth;
+      const maxY = wrap.scrollHeight - wrap.clientHeight;
+      let newScrollX = cx * newZoom - mx;
+      let newScrollY = cy * newZoom - my;
+      newScrollX = Math.max(0, Math.min(maxX, newScrollX));
+      newScrollY = Math.max(0, Math.min(maxY, newScrollY));
+      wrap.scrollLeft = newScrollX;
+      wrap.scrollTop = newScrollY;
+    });
   }, { passive: false });
 
-  // Zoom buttons
+  // wrap 滚动同步到 state.panX/panY
+  wrap.addEventListener('scroll', () => {
+    if (document.body.classList.contains('source-mode')) return;
+    const centerX = (wrap.scrollWidth - wrap.clientWidth) / 2;
+    const centerY = (wrap.scrollHeight - wrap.clientHeight) / 2;
+    state.panX = wrap.scrollLeft - centerX;
+    state.panY = wrap.scrollTop - centerY;
+  }, { passive: true });
+
+  // Zoom buttons — 以画布中心为锚点
   $('#zoom-in').onclick = () => {
-    state.zoom = Math.min(6, state.zoom * 1.2);
-    applyTransform(); saveState();
+    const wrap = $('#canvas-wrap');
+    const oldZoom = state.zoom;
+    const newZoom = Math.min(6, oldZoom * 1.2);
+    if (newZoom === oldZoom) return;
+    const cx = (wrap.scrollLeft + wrap.clientWidth / 2) / oldZoom;
+    const cy = (wrap.scrollTop + wrap.clientHeight / 2) / oldZoom;
+    state.zoom = newZoom;
+    applyTransform();
+    requestAnimationFrame(() => {
+      wrap.scrollLeft = cx * newZoom - wrap.clientWidth / 2;
+      wrap.scrollTop = cy * newZoom - wrap.clientHeight / 2;
+      saveState();
+    });
   };
   $('#zoom-out').onclick = () => {
-    state.zoom = Math.max(0.05, state.zoom / 1.2);
-    applyTransform(); saveState();
+    const wrap = $('#canvas-wrap');
+    const oldZoom = state.zoom;
+    const newZoom = Math.max(0.05, oldZoom / 1.2);
+    if (newZoom === oldZoom) return;
+    const cx = (wrap.scrollLeft + wrap.clientWidth / 2) / oldZoom;
+    const cy = (wrap.scrollTop + wrap.clientHeight / 2) / oldZoom;
+    state.zoom = newZoom;
+    applyTransform();
+    requestAnimationFrame(() => {
+      wrap.scrollLeft = cx * newZoom - wrap.clientWidth / 2;
+      wrap.scrollTop = cy * newZoom - wrap.clientHeight / 2;
+      saveState();
+    });
   };
+
   $('#zoom-fit').onclick = fitToWindow;
 
   // Drag menu items
@@ -2924,7 +3000,7 @@ async function init() {
     html.classList.add('is-source');
     const forceTransparent = () => {
       // 包含 <html> 元素 - CSS 选择器无法从 body 反向选 html，这是关键
-      const sels = ['html', 'body', '#app', '#main', '#canvas-wrap', '#canvas-viewport', '#stage-scaler', '#stage', '#cover-mask'];
+      const sels = ['html', 'body', '#app', '#main', '#canvas-wrap', '#canvas-scroll-inner', '#canvas-viewport', '#stage-scaler', '#stage', '#cover-mask'];
       sels.forEach(sel => {
         const el = sel === 'html' ? document.documentElement : $(sel);
         if (!el) return;
