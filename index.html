@@ -123,7 +123,7 @@ body.mode-horizontal #cover-mask { display: block; }
   overflow: visible;
   background: transparent;
   cursor: grab;
-  padding: 0;
+  padding: 4px 10px;
   border-radius: 0;
 }
 .menu-item.side-right { justify-content: flex-end; }
@@ -444,7 +444,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       </div>
       <div class="row">
         <label>行高</label>
-        <div class="ctrl"><input type="number" id="sel-row-height" min="30" max="200" value="60"></div>
+        <div class="ctrl"><input type="number" id="sel-row-height" min="30" max="200" value="40"></div>
       </div>
       <div class="row check">
         <label><input type="checkbox" id="sel-show-bg" checked> 显示背景</label>
@@ -497,7 +497,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       </div>
       <div class="row">
         <label>图标间距</label>
-        <div class="ctrl"><input type="number" id="icon-gap" min="-10" max="40" value="4" step="1"></div>
+        <div class="ctrl"><input type="number" id="icon-gap" min="0" max="40" value="0" step="1"></div>
       </div>
     </div>
 
@@ -693,7 +693,7 @@ const state = {
     shadowBlur: 5,
     shadowColor: '#000000',
     iconSize: 37,
-    iconGap: 4
+    iconGap: 0
   },
   showSafe: false,
   zoom: 1,
@@ -853,14 +853,14 @@ function decodeState(str) {
 
 // style 默认值，用于序列化时 diff（省略相同字段以缩短 URL）
 const DEFAULT_STYLE = {
-  leftX: 40, rightX: null, topY: 40, colWidth: 166, rowHeight: 35,
+  leftX: 40, rightX: null, topY: 40, colWidth: 166, rowHeight: 40,
   rowGap: 4, showNumbers: true, showBackground: true,
   bgColor: '#000000', bgOpacity: 0.3, bgRadius: 24,
   fontFamily: 'system-ui', customFontLoaded: false,
   fontStyle: 'normal', fontWeight: '700', fontSize: 20,
   letterSpacing: 0, textColor: '#ffffff', strokeColor: '#000000',
   strokeWidth: 1, shadowX: 1, shadowY: -1, shadowBlur: 5,
-  shadowColor: '#000000', iconSize: 37, iconGap: 4
+  shadowColor: '#000000', iconSize: 37, iconGap: 0
 };
 
 // per-item style 紧凑 key 映射（缩短 URL）
@@ -1549,8 +1549,8 @@ function getItemWidth(item, st) {
     countText = (item.side || 'left') === 'right' ? `${item.count}×` : `×${item.count}`;
   }
   const countW = countText ? measureTextWidth(countText, st) + 6 : 0;
-  // padding 估算：左右各 8px
-  return Math.ceil(iconW + iconGap + countW + nameW + 16);
+  // padding 估算：左右各 10px（CSS 已对齐）
+  return Math.ceil(iconW + iconGap + countW + nameW + 20);
 }
 
 /* ============== Image items ============== */
@@ -2672,7 +2672,7 @@ function setupControls() {
     render();
     saveState();
   };
-  bindSel('sel-row-height', 'rowHeight', v => parseInt(v) || 60);
+  bindSel('sel-row-height', 'rowHeight', v => parseInt(v) || 40);
   bindSel('sel-show-bg', 'bgOn');
   bindSel('sel-bg-color', 'bgColor');
   bindSel('sel-bg-radius', 'bgRadius');
@@ -2729,7 +2729,7 @@ function setupControls() {
   $('#icon-size').value = state.style.iconSize;
   $('#icon-size').oninput = (e) => { state.style.iconSize = parseInt(e.target.value) || 44; render(); };
   $('#icon-gap').value = state.style.iconGap;
-  $('#icon-gap').oninput = (e) => { state.style.iconGap = parseInt(e.target.value) || 10; render(); };
+  $('#icon-gap').oninput = (e) => { state.style.iconGap = Math.max(0, parseInt(e.target.value) || 0); render(); };
 
   // Safe area
   $('#show-safe').onclick = () => {
