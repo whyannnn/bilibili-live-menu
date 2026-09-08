@@ -671,7 +671,7 @@ const state = {
     { id: 'preset-t3', text: '舰长：   /5', x: 180, y: 200, w: 200, fontSize: 20, color: '#ff3344', strokeWidth: 2, strokeColor: '#000000', fontFamily: '', fontWeight: '900', letterSpacing: 1.5, z: 0 },
     { id: 'preset-t4', text: '心动盲盒：        /150', x: 180, y: 230, w: 240, fontSize: 20, color: '#ff3344', strokeWidth: 2, strokeColor: '#000000', fontFamily: '', fontWeight: '900', letterSpacing: 1.5, z: 0 }
   ],
-  textSelection: null,
+  textSelection: [],
   selection: [],
   phoneOverlay: false,
   style: {
@@ -789,7 +789,10 @@ function loadState() {
       letterSpacing: t.ls != null ? t.ls : 0,
       z: t.z || 0
     }));
-    if (d.ts != null) state.textSelection = d.ts;
+    if (d.ts != null) {
+      // 兼容老数据：可能是单个 id 字符串
+      state.textSelection = Array.isArray(d.ts) ? d.ts : (d.ts ? [d.ts] : []);
+    }
     if (d.ii) state.imageItems = d.ii.map(im => ({
       id: im.id || uid(), url: im.u || '', name: im.n || '图片',
       x: im.x || 0, y: im.y || 0, w: im.w || 200, h: im.h || 100, z: im.z || 0,
@@ -1344,7 +1347,7 @@ function renderMenuItems() {
 
 /* ============== Text items render ============== */
 function syncTextInputsFromSelection() {
-  const id = state.textSelection;
+  const id = state.textSelection[0];
   const t = state.textItems.find(it => it.id === id);
   if (!t) return;
   if ($('#text-font-size')) $('#text-font-size').value = t.fontSize;
@@ -1378,7 +1381,7 @@ function renderTextItems() {
     const el = document.createElement('div');
     el.className = 'text-item';
     el.dataset.id = t.id;
-    if (state.textSelection === t.id) el.classList.add('selected');
+    if (state.textSelection.includes(t.id)) el.classList.add('selected');
     el.style.left = t.x + 'px';
     el.style.top = t.y + 'px';
     if (t.w) el.style.width = t.w + 'px';
@@ -1398,7 +1401,7 @@ function renderTextItems() {
     el.querySelector('.del-btn').onclick = (e) => {
       e.stopPropagation();
       state.textItems = state.textItems.filter(it => it.id !== t.id);
-      if (state.textSelection === t.id) state.textSelection = null;
+      state.textSelection = state.textSelection.filter(x => x !== t.id);
       syncTextInputsFromSelection();
       render();
     };
@@ -1424,11 +1427,28 @@ function renderTextItems() {
     };
     el.onclick = (e) => {
       e.stopPropagation();
-      state.textSelection = t.id;
+      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+        // 多选：toggle 当前项
+        if (state.textSelection.includes(t.id)) {
+          state.textSelection = state.textSelection.filter(x => x !== t.id);
+        } else {
+          state.textSelection = state.textSelection.concat([t.id]);
+        }
+      } else {
+        // 单选：替换
+        if (state.textSelection.length === 1 && state.textSelection[0] === t.id) {
+          // 已经是当前唯一选中，不动
+        } else {
+          state.textSelection = [t.id];
+        }
+      }
       syncTextInputsFromSelection();
       // 不重建 DOM（否则 dblclick 的第二次 click 落在新元素上，dblclick 不触发）
       document.querySelectorAll('.text-item').forEach(x => x.classList.remove('selected'));
-      el.classList.add('selected');
+      state.textSelection.forEach(id => {
+        const sel = document.querySelector('.text-item[data-id="' + id + '"]');
+        if (sel) sel.classList.add('selected');
+      });
     };
     el.ondblclick = (e) => {
       e.stopPropagation();
@@ -1463,16 +1483,17 @@ function renderTextItems() {
     el.oncontextmenu = (e) => {
       e.preventDefault();
       e.stopPropagation();
-      state.textSelection = t.id;
+      // 右键如果不在多选中，则替换为单选
+      if (!state.textSelection.includes(t.id)) state.textSelection = [t.id];
       renderTextItems();
       showCtxMenu(e.clientX, e.clientY, [
-        { label: '置顶', act: () => adjustTextZ(t.id, 'top') },
-        { label: '置底', act: () => adjustTextZ(t.id, 'bottom') },
+        { label: '置顶', act: () => { state.textSelection.forEach(id => adjustTextZ(id, 'top')); render(); } },
+        { label: '置底', act: () => { state.textSelection.forEach(id => adjustTextZ(id, 'bottom')); render(); } },
         { sep: true },
-        { label: '上移一层', act: () => adjustTextZ(t.id, 'up') },
-        { label: '下移一层', act: () => adjustTextZ(t.id, 'down') },
+        { label: '上移一层', act: () => { state.textSelection.forEach(id => adjustTextZ(id, 'up')); render(); } },
+        { label: '下移一层', act: () => { state.textSelection.forEach(id => adjustTextZ(id, 'down')); render(); } },
         { sep: true },
-        { label: '删除', act: () => { state.textItems = state.textItems.filter(x => x.id !== t.id); state.textSelection = null; syncTextInputsFromSelection(); render(); } }
+        { label: '删除', act: () => { state.textItems = state.textItems.filter(x => !state.textSelection.includes(x.id)); state.textSelection = []; syncTextInputsFromSelection(); render(); } }
       ]);
     };
     container.appendChild(el);
@@ -1482,34 +1503,53 @@ function renderTextItems() {
 function setupTextItemDrag() {
   const container = $('#text-items');
   if (!container) return;
-  let dragging = null, startPt = null, startEl = null;
+  let dragging = null, startPt = null, startEls = [];
   container.addEventListener('mousedown', e => {
     if (spaceDown) return;
     const el = e.target.closest('.text-item');
     if (!el) return;
     if (e.target.classList.contains('del-btn')) return;
-    if (e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
     e.stopPropagation();
     e.preventDefault();
     const id = el.dataset.id;
     const item = state.textItems.find(t => t.id === id);
     if (!item) return;
+    // 如果点击的 item 已经在选中里，拖拽所有选中的；否则替换为单选后再拖
+    if (!state.textSelection.includes(id)) {
+      if (!(e.shiftKey || e.ctrlKey || e.metaKey)) {
+        state.textSelection = [id];
+        syncTextInputsFromSelection();
+        document.querySelectorAll('.text-item').forEach(x => x.classList.remove('selected'));
+        el.classList.add('selected');
+      }
+    }
     dragging = id;
     startPt = { x: e.clientX, y: e.clientY };
-    startEl = { x: item.x, y: item.y };
+    // 记录所有选中 item 的起始位置
+    startEls = state.textSelection.map(sid => {
+      const it = state.textItems.find(t => t.id === sid);
+      return it ? { id: sid, x: it.x, y: it.y } : null;
+    }).filter(Boolean);
   });
   window.addEventListener('mousemove', e => {
     if (!dragging) return;
-    const item = state.textItems.find(t => t.id === dragging);
-    if (!item) return;
     const scale = state.zoom;
-    item.x = startEl.x + (e.clientX - startPt.x) / scale;
-    item.y = startEl.y + (e.clientY - startPt.y) / scale;
+    const dx = (e.clientX - startPt.x) / scale;
+    const dy = (e.clientY - startPt.y) / scale;
+    startEls.forEach(rec => {
+      const it = state.textItems.find(t => t.id === rec.id);
+      if (it) {
+        it.x = rec.x + dx;
+        it.y = rec.y + dy;
+      }
+    });
     renderTextItems();
   });
   window.addEventListener('mouseup', () => {
     if (dragging) {
       dragging = null;
+      startEls = [];
       saveState();
     }
   });
@@ -2116,10 +2156,11 @@ function setupInteraction() {
       state.imageItems = state.imageItems.filter(it => it.id !== state.imageSelection);
       state.imageSelection = null;
       render();
-    } else if ((e.key === 'Backspace' || e.key === 'Delete') && state.textSelection) {
+    } else if ((e.key === 'Backspace' || e.key === 'Delete') && state.textSelection && state.textSelection.length) {
       e.preventDefault();
-      state.textItems = state.textItems.filter(it => it.id !== state.textSelection);
-      state.textSelection = null;
+      const ids = new Set(state.textSelection);
+      state.textItems = state.textItems.filter(it => !ids.has(it.id));
+      state.textSelection = [];
       syncTextInputsFromSelection();
       render();
     } else if ((e.key === 'Backspace' || e.key === 'Delete') && state.selection && state.selection.length) {
@@ -2406,7 +2447,10 @@ function setupMarquee() {
       x: (e.clientX - rect.left) / state.zoom,
       y: (e.clientY - rect.top) / state.zoom
     };
-    if (!e.shiftKey) state.selection = [];
+    if (!e.shiftKey) {
+      state.selection = [];
+      state.textSelection = [];
+    }
     marquee.style.display = 'block';
     marquee.style.left = startPt.x + 'px';
     marquee.style.top = startPt.y + 'px';
@@ -2431,7 +2475,7 @@ function setupMarquee() {
     marquee.style.width = w + 'px';
     marquee.style.height = h + 'px';
 
-    // hit test
+    // hit test — 玩法项
     const sel = [];
     state.menu.items.forEach(item => {
       const ix = item.x != null ? item.x : 0;
@@ -2443,9 +2487,38 @@ function setupMarquee() {
         sel.push(item.id);
       }
     });
-    state.selection = sel;
+    // hit test — 文字（用 getBoundingClientRect 反算画布坐标）
+    const textSel = [];
+    document.querySelectorAll('.text-item').forEach(dom => {
+      const id = dom.dataset.id;
+      const t = state.textItems.find(x => x.id === id);
+      if (!t) return;
+      const r = dom.getBoundingClientRect();
+      const stageRect = stage.getBoundingClientRect();
+      const ix = (r.left - stageRect.left) / state.zoom;
+      const iy = (r.top - stageRect.top) / state.zoom;
+      const iw = r.width / state.zoom;
+      const ih = r.height / state.zoom;
+      if (ix < x + w && ix + iw > x && iy < y + h && iy + ih > y) {
+        textSel.push(id);
+      }
+    });
+    // shift 累加，否则替换
+    if (e.shiftKey) {
+      const set = new Set(state.selection);
+      sel.forEach(id => set.add(id));
+      state.selection = Array.from(set);
+      const tset = new Set(state.textSelection);
+      textSel.forEach(id => tset.add(id));
+      state.textSelection = Array.from(tset);
+    } else {
+      state.selection = sel;
+      state.textSelection = textSel;
+    }
     renderMenuItems();
+    renderTextItems();
     updateSelectionUI();
+    syncTextInputsFromSelection();
   });
 
   window.addEventListener('mouseup', () => {
@@ -2637,7 +2710,7 @@ function setupControls() {
       state.menu.items = [];
       state.selection = [];
       state.textItems = [];
-      state.textSelection = null;
+      state.textSelection = [];
       state.imageItems = [];
       state.imageSelection = null;
       render();
@@ -2661,7 +2734,7 @@ function setupControls() {
       letterSpacing: $('#text-letter-spacing') ? (parseFloat($('#text-letter-spacing').value) || 2) : 2
     };
     state.textItems.push(t);
-    state.textSelection = t.id;
+    state.textSelection = [t.id];
     syncTextInputsFromSelection();
     render();
   };
@@ -2674,12 +2747,14 @@ function setupControls() {
       let v = el.type === 'checkbox' ? el.checked : el.value;
       if (el.type === 'number') v = parseFloat(v) || 0;
       if (transform) v = transform(v);
-      const id = state.textSelection;
-      const t = state.textItems.find(it => it.id === id);
-      if (t) {
-        t[key] = v;
-        render();
-      }
+      // 批量应用到所有选中的文字
+      const sel = state.textSelection.length ? state.textSelection : (state.textSelection = []);
+      if (sel.length === 0) return;
+      sel.forEach(id => {
+        const t = state.textItems.find(it => it.id === id);
+        if (t) t[key] = v;
+      });
+      render();
     };
   };
   bindText('text-font-size', 'fontSize');
@@ -2692,13 +2767,14 @@ function setupControls() {
   const fontSel = $('#text-font-family');
   if (fontSel) {
     fontSel.oninput = () => {
-      const id = state.textSelection;
-      const t = state.textItems.find(it => it.id === id);
-      if (t) {
-        t.fontFamily = fontSel.value;
-        if ($('#text-font-local')) $('#text-font-local').value = '';
-        render();
-      }
+      const sel = state.textSelection.length ? state.textSelection : [];
+      if (sel.length === 0) return;
+      sel.forEach(id => {
+        const t = state.textItems.find(it => it.id === id);
+        if (t) t.fontFamily = fontSel.value;
+      });
+      if ($('#text-font-local')) $('#text-font-local').value = '';
+      render();
     };
   }
 
@@ -2706,20 +2782,22 @@ function setupControls() {
   const fontLocalEl = $('#text-font-local');
   if (fontLocalEl) {
     fontLocalEl.oninput = () => {
-      const id = state.textSelection;
-      const t = state.textItems.find(it => it.id === id);
-      if (t) {
-        t.fontFamily = fontLocalEl.value.trim() || $('#text-font-family').value;
-        render();
-      }
+      const sel = state.textSelection.length ? state.textSelection : [];
+      if (sel.length === 0) return;
+      const v = fontLocalEl.value.trim() || $('#text-font-family').value;
+      sel.forEach(id => {
+        const t = state.textItems.find(it => it.id === id);
+        if (t) t.fontFamily = v;
+      });
+      render();
     };
   }
 
   // Stage click clears text selection
   $('#stage').addEventListener('mousedown', (e) => {
     if (e.target.closest('.text-item')) return;
-    if (state.textSelection) {
-      state.textSelection = null;
+    if (state.textSelection.length > 0) {
+      state.textSelection = [];
       renderTextItems();
     }
   }, true);
