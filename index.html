@@ -3501,16 +3501,27 @@ function plDraw() {
   let lines = null;
   if (single) {
     if (fmt === 'auto') {
-      const COLS = 3;
-      const colW = availW / COLS;
+      ctx0.font = plFontSpec(fs);
+      // 长歌名判定：文字宽度 > 1/3 容器宽度（容器 = 去掉左右留白后的可用宽度）
+      const thr = availW / 3;
+      let maxNameW = 0, maxShortW = 0;
+      for (const r of rows) {
+        if (r.type === 'group') continue;
+        const w = ctx0.measureText(r.text).width;
+        if (w > maxNameW) maxNameW = w;
+        if (w <= thr && w > maxShortW) maxShortW = w;
+      }
+      // 整行最大基准宽度 = 以最长歌名为准；同时保证 3 个短歌名能并排放下
+      let rowW = Math.min(availW, Math.max(maxNameW, maxShortW * 3));
+      if (!(rowW > 0)) rowW = availW;
+      const slot = rowW / 3;
       lines = [];
       let cur = [];
-      const flush = () => { if (cur.length) { lines.push({ kind: 'grid', items: cur }); cur = []; } };
-      ctx0.font = plFontSpec(fs);
+      const flush = () => { if (cur.length) { lines.push({ kind: 'grid', items: cur, slot }); cur = []; } };
       for (const r of rows) {
-        if (r.type === 'group') { flush(); lines.push({ kind: 'group', text: r.text }); continue; }
-        if (ctx0.measureText(r.text).width > colW - 6) { flush(); lines.push({ kind: 'song', text: r.text }); }
-        else { cur.push(r.text); if (cur.length === COLS) flush(); }
+        if (r.type === 'group') { flush(); lines.push({ kind: 'group', text: r.text }); continue; }   // 标题独占整行
+        if (ctx0.measureText(r.text).width > thr + 0.5) { flush(); lines.push({ kind: 'song', text: r.text }); }  // 长歌名独占整行
+        else { cur.push(r.text); if (cur.length === 3) flush(); }
       }
       flush();
       layoutH = lines.reduce((a, ln) => a + (ln.kind === 'group' ? gRowH : lh), 0);
@@ -3577,12 +3588,12 @@ function plDraw() {
       if (ln.kind === 'group') { drawAligned(ln.text, true, y, availW); y += gRowH; drawn++; }
       else if (ln.kind === 'song') { drawAligned(ln.text, false, y, availW); y += lh; drawn++; }
       else {
-        // 自适应：短内容 3 个一行（长内容在上面已单独成行）
-        const colW3 = availW / 3;
+        // 自适应：3 个短歌名一行（列宽 = 整行基准宽度 / 3；长歌名在上面已独占整行）
+        const slot = ln.slot || (availW / 3);
         ctx.font = plFontSpec(fs);
         ctx.textAlign = 'left';
         ln.items.forEach((t, k) => {
-          plDrawText(ctx, plTruncate(ctx, t, colW3 - 6), padX + k * colW3, y + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
+          plDrawText(ctx, plTruncate(ctx, t, slot - 6), padX + k * slot, y + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
           drawn++;
         });
         y += lh;
