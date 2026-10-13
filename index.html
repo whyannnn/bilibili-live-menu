@@ -344,11 +344,75 @@ body.source-mode #cover-mask { display: none !important; }
 body.phone-overlay-on #phone-overlay { display: block; }
 body.source-mode #phone-overlay { display: none !important; }
 body.mode-horizontal #phone-overlay { display: none !important; }
+
+/* ============ 歌单整理工具（独立画布） ============ */
+#pl-open-btn { width: 100%; margin-bottom: 2px; }
+#pl-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; z-index: 300; }
+#pl-modal.open { display: flex; align-items: center; justify-content: center; }
+#pl-modal .pl-sheet {
+  width: min(1400px, 97vw); height: min(880px, 95vh);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.3);
+}
+.pl-head {
+  height: 50px; flex-shrink: 0; display: flex; align-items: center; gap: 10px;
+  padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.pl-head h2 { font-size: 14px; font-weight: 700; }
+.pl-head .pl-hint { font-size: 11px; color: var(--text-dim); }
+.pl-head .spacer { flex: 1; }
+.pl-head .close {
+  width: 28px; height: 28px; border: none; background: transparent; color: var(--text-dim);
+  font-size: 20px; line-height: 1; border-radius: 5px;
+}
+.pl-head .close:hover { background: var(--panel-2); color: var(--text); }
+.pl-body { flex: 1; display: flex; min-height: 0; }
+
+/* 左：输入 */
+.pl-col-plain { width: 300px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+.pl-col-plain h3 { font-size: 12px; font-weight: 600; color: var(--text-dim); padding: 12px 14px 8px; }
+#pl-text {
+  flex: 1; margin: 0 12px; min-height: 0; resize: none; padding: 10px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+  color: var(--text); line-height: 1.7; font-size: 13px;
+}
+.pl-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; }
+.pl-tools button {
+  flex: 1 1 auto; min-width: 68px; padding: 5px 8px; font-size: 12px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 5px;
+}
+.pl-tools button:hover { background: var(--panel); border-color: var(--accent); color: var(--accent); }
+.pl-stat { padding: 0 14px 12px; font-size: 11px; color: var(--text-dim); }
+
+/* 中：独立画布 */
+.pl-canvas-col { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel-2); }
+.pl-canvas-bar { height: 38px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--text-dim); }
+.pl-canvas-bar select { padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); }
+.pl-canvas-wrap { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 18px; min-height: 0; }
+#pl-canvas { display: block; background: transparent; box-shadow: 0 4px 24px rgba(0,0,0,0.14); flex-shrink: 0; }
+
+/* 右：样式 */
+.pl-col-style { width: 258px; flex-shrink: 0; border-left: 1px solid var(--border); overflow-y: auto; padding: 12px 14px; }
+.pl-col-style h3 { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 10px; }
+.pl-col-style .row { margin-bottom: 8px; }
+.pl-col-style .row label { flex: 0 0 74px; font-size: 12px; color: var(--text-dim); }
+.pl-col-style .row .ctrl { flex: 1; }
+.pl-col-style input[type="number"], .pl-col-style input[type="text"], .pl-col-style select {
+  width: 100%; padding: 4px 7px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg); color: var(--text);
+}
+.pl-col-style input[type="color"] { width: 100%; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.pl-sep { height: 1px; background: var(--border); margin: 12px 0; }
 </style>
 </head>
 <body>
 <div id="app">
   <aside id="sidebar">
+    <div class="section">
+      <button class="btn small primary" id="pl-open-btn" title="打开歌单整理工具（独立画布，不影响菜单画布）">🎵 歌单整理工具</button>
+    </div>
+
     <div class="section">
       <h3>画布尺寸</h3>
       <div class="row">
@@ -644,6 +708,107 @@ body.mode-horizontal #phone-overlay { display: none !important; }
     </div>
     <div class="modal-body">
       <div class="icon-grid" id="picker-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 歌单整理工具（独立画布） ============ -->
+<div id="pl-modal">
+  <div class="pl-sheet">
+    <div class="pl-head">
+      <h2>🎵 歌单整理工具</h2>
+      <span class="pl-hint">独立画布 · 与菜单画布互不影响</span>
+      <span class="spacer"></span>
+      <button class="btn small" id="pl-save">保存</button>
+      <button class="btn small" id="pl-export">导出 PNG</button>
+      <button class="btn small primary" id="pl-download-txt">导出 TXT</button>
+      <button class="close" id="pl-close">×</button>
+    </div>
+    <div class="pl-body">
+      <!-- 左：歌曲列表输入 -->
+      <div class="pl-col-plain">
+        <h3>歌曲列表（一行一首）</h3>
+        <textarea id="pl-text" placeholder="直接粘贴歌名，一行一首。&#10;例：&#10;晴天&#10;稻香&#10;夜曲&#10;&#10;也支持粘贴带序号的：1. 晴天&#10;会自动清理序号。"></textarea>
+        <div class="pl-tools">
+          <button data-op="trim" title="删掉所有空行">去空行</button>
+          <button data-op="dedup" title="删掉重复歌名（保留首次出现）">去重</button>
+          <button data-op="clean" title="清掉行首序号 / 时长 / 多余空格">清格式</button>
+          <button data-op="sort" title="按拼音/字母排序">排序</button>
+          <button data-op="shuffle" title="随机打乱">乱序</button>
+          <button data-op="reverse" title="倒序">倒序</button>
+        </div>
+        <div class="pl-stat" id="pl-stat">0 首</div>
+      </div>
+
+      <!-- 中：独立画布 -->
+      <div class="pl-canvas-col">
+        <div class="pl-canvas-bar">
+          <label>画布</label>
+          <select id="pl-size">
+            <option value="1080x1920">竖版 1080×1920</option>
+            <option value="1920x1080">横版 1920×1080</option>
+            <option value="1080x1080">方形 1080×1080</option>
+            <option value="720x1280">竖版 720×1280</option>
+          </select>
+          <span style="flex:1;"></span>
+          <label>预览缩放</label>
+          <select id="pl-zoom">
+            <option value="0.25">25%</option>
+            <option value="0.35" selected>35%</option>
+            <option value="0.5">50%</option>
+            <option value="0.75">75%</option>
+            <option value="1">100%</option>
+          </select>
+        </div>
+        <div class="pl-canvas-wrap">
+          <canvas id="pl-canvas"></canvas>
+        </div>
+      </div>
+
+      <!-- 右：样式 -->
+      <div class="pl-col-style">
+        <h3>字号 / 行</h3>
+        <div class="row"><label>字号</label><div class="ctrl"><input type="number" id="pl-fs" min="8" max="160" value="28"></div></div>
+        <div class="row"><label>行高</label><div class="ctrl"><input type="number" id="pl-lh" min="1" max="4" step="0.05" value="1.6"></div></div>
+        <div class="row"><label>列数</label><div class="ctrl"><input type="number" id="pl-cols" min="1" max="4" value="1"></div></div>
+        <div class="row"><label>字重</label><div class="ctrl">
+          <select id="pl-fw"><option value="400">正常</option><option value="700">加粗</option><option value="900" selected>超粗</option></select>
+        </div></div>
+
+        <div class="pl-sep"></div>
+        <h3>颜色</h3>
+        <div class="row"><label>字色</label><div class="ctrl"><input type="color" id="pl-color" value="#ffffff"></div></div>
+        <div class="row"><label>描边宽</label><div class="ctrl"><input type="number" id="pl-sw" min="0" max="12" value="3"></div></div>
+        <div class="row"><label>描边色</label><div class="ctrl"><input type="color" id="pl-sc" value="#000000"></div></div>
+        <div class="row"><label>背景</label><div class="ctrl"><input type="color" id="pl-bg" value="#101014"></div></div>
+        <div class="row"><label>透明底</label><div class="ctrl"><input type="checkbox" id="pl-bg-trans"></div></div>
+
+        <div class="pl-sep"></div>
+        <h3>标题</h3>
+        <div class="row"><label>标题文字</label><div class="ctrl"><input type="text" id="pl-title" value="今日歌单" placeholder="留空则不显示"></div></div>
+        <div class="row"><label>标题字号</label><div class="ctrl"><input type="number" id="pl-title-fs" min="8" max="200" value="48"></div></div>
+        <div class="row"><label>标题色</label><div class="ctrl"><input type="color" id="pl-title-color" value="#00aeec"></div></div>
+
+        <div class="pl-sep"></div>
+        <h3>编号</h3>
+        <div class="row"><label>显示序号</label><div class="ctrl"><input type="checkbox" id="pl-number" checked></div></div>
+        <div class="row"><label>序号格式</label><div class="ctrl">
+          <select id="pl-number-fmt">
+            <option value="dot">1.</option>
+            <option value="paren">1)</option>
+            <option value="bracket">[1]</option>
+            <option value="circle">①</option>
+          </select>
+        </div></div>
+        <div class="row"><label>起始序号</label><div class="ctrl"><input type="number" id="pl-number-start" min="1" value="1"></div></div>
+
+        <div class="pl-sep"></div>
+        <h3>布局</h3>
+        <div class="row"><label>上边距</label><div class="ctrl"><input type="number" id="pl-pad-top" min="0" value="80"></div></div>
+        <div class="row"><label>左右边距</label><div class="ctrl"><input type="number" id="pl-pad-x" min="0" value="80"></div></div>
+        <div class="row"><label>列间距</label><div class="ctrl"><input type="number" id="pl-col-gap" min="0" value="60"></div></div>
+        <div class="row"><label>自动分列</label><div class="ctrl"><input type="checkbox" id="pl-auto-col" checked title="勾选后按画布高度自动分列，不勾选则用上方「列数」"></div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -2852,6 +3017,311 @@ function appendPickerPage() {
   }
 }
 
+/* ============== 歌单整理工具（独立画布） ============== */
+// 完全独立的画布：自己的尺寸、样式、数据（localStorage 独立键），
+// 与菜单画布（state）互不影响。预览和导出都用 Canvas 2D 绘制，
+// 所以导出的 PNG 和预览 100% 一致，也不依赖 DOM 截图。
+const PL_KEY = 'bili-playlist-v1';
+
+const PL_DEFAULT = {
+  text: '',
+  size: '1080x1920',
+  zoom: 0.35,
+  fs: 28, lh: 1.6, cols: 1, fw: '900',
+  color: '#ffffff', sw: 3, sc: '#000000',
+  bg: '#101014', bgTrans: false,
+  title: '今日歌单', titleFs: 48, titleColor: '#00aeec',
+  number: true, numFmt: 'dot', numStart: 1,
+  padTop: 80, padX: 80, colGap: 60, autoCol: true
+};
+let plState = Object.assign({}, PL_DEFAULT);
+
+function plSave() {
+  try { localStorage.setItem(PL_KEY, JSON.stringify(plState)); } catch (e) {}
+}
+function plLoad() {
+  try {
+    const raw = localStorage.getItem(PL_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d && typeof d === 'object') plState = Object.assign({}, PL_DEFAULT, d);
+  } catch (e) {}
+}
+
+// ---- 文本整理 ----
+// 清掉：行首/行尾时长、行首序号（1. / 1、 / 1) / [1] / (1) / ①…）、项目符号、多余空格
+// 注意顺序：先处理「时长」，再处理「序号」，否则 "03:21 稻香" 会被序号规则切成 "21 稻香"
+function plCleanLine(s) {
+  let t = String(s || '');
+  t = t.replace(/\r/g, '');
+  // 整行只有时长 → 丢掉
+  if (/^\s*\d{1,2}:\d{2}(:\d{2})?\s*$/.test(t)) return '';
+  // 行首时长 + 空格："03:21 稻香" / "03:21 - 稻香"
+  t = t.replace(/^\s*\d{1,2}:\d{2}(:\d{2})?\s*[\-–—]?\s+/, '');
+  // 项目符号
+  t = t.replace(/^\s*[\-\*\u2022\u25cf\u25cb]\s*/, '');
+  // 括号序号：[1] (1) 【1】
+  t = t.replace(/^\s*[\[\(【]\s*\d{1,3}\s*[\]\)】]\s*[\.\)、,：\-]?\s*/, '');
+  // 裸序号：1. 1、 1) 1： 1-（用负向断言避开 "3.5" 这类小数）
+  t = t.replace(/^\s*\d{1,3}\s*[\.\)、,：\-]\s*(?!\d)/, '');
+  // 圈号 ①-⑳
+  t = t.replace(/^\s*[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]\s*/, '');
+  // 行尾时长
+  t = t.replace(/\s*\d{1,2}:\d{2}(:\d{2})?\s*$/, '');
+  t = t.replace(/\s+/g, ' ').trim();
+  return t;
+}
+// 中文排序：显式指定拼音 collation，避免部分环境退回码点序
+let _plCollator = null;
+function plCollator() {
+  if (!_plCollator) {
+    try { _plCollator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base', collation: 'pinyin' }); }
+    catch (e) { _plCollator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' }); }
+  }
+  return _plCollator;
+}
+function plSongs() {
+  return String(plState.text || '').split('\n').map(plCleanLine).filter(Boolean);
+}
+function plSetText(lines) {
+  plState.text = lines.join('\n');
+  const ta = $('#pl-text');
+  if (ta) ta.value = plState.text;
+  plUpdateStat();
+  plDraw();
+  plSave();
+}
+function plUpdateStat() {
+  const n = plSongs().length;
+  const raw = String(plState.text || '').split('\n').filter(l => l.trim()).length;
+  const el = $('#pl-stat');
+  if (el) el.textContent = `${n} 首${raw !== n ? `（原始 ${raw} 行）` : ''}`;
+}
+
+function plApplyOp(op) {
+  let lines = String(plState.text || '').split('\n');
+  if (op === 'trim') {
+    lines = lines.filter(l => l.trim());
+  } else if (op === 'dedup') {
+    const seen = new Set();
+    const out = [];
+    lines.forEach(l => {
+      const k = plCleanLine(l);
+      if (!k) return;
+      const key = k.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(l);
+    });
+    lines = out;
+  } else if (op === 'clean') {
+    lines = lines.map(plCleanLine).filter(Boolean);
+  } else if (op === 'sort') {
+    lines = lines.filter(l => l.trim()).sort((a, b) => plCollator().compare(plCleanLine(a), plCleanLine(b)));
+  } else if (op === 'shuffle') {
+    lines = lines.filter(l => l.trim());
+    for (let i = lines.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [lines[i], lines[j]] = [lines[j], lines[i]];
+    }
+  } else if (op === 'reverse') {
+    lines = lines.filter(l => l.trim()).reverse();
+  }
+  plSetText(lines);
+}
+
+// ---- 序号格式 ----
+const PL_CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
+function plNumLabel(n) {
+  if (n >= 1 && n <= 20 && plState.numFmt === 'circle') return PL_CIRCLED[n - 1];
+  if (plState.numFmt === 'paren') return `${n})`;
+  if (plState.numFmt === 'bracket') return `[${n}]`;
+  return `${n}.`;
+}
+
+// ---- 绘制 ----
+function plFontSpec(size) {
+  const fam = '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif';
+  return `${plState.fw || 900} ${size}px ${fam}`;
+}
+function plDrawText(ctx, text, x, y, fill, sw, sc) {
+  if (sw > 0) {
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+    ctx.strokeStyle = sc;
+    ctx.lineWidth = sw * 2;
+    ctx.strokeText(text, x, y);
+  }
+  ctx.fillStyle = fill;
+  ctx.fillText(text, x, y);
+}
+function plTruncate(ctx, text, maxW) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+
+function plDraw() {
+  const cv = $('#pl-canvas');
+  if (!cv) return;
+  const [W, H] = String(plState.size || '1080x1920').split('x').map(Number);
+  const z = parseFloat(plState.zoom) || 0.35;
+  cv.width = W; cv.height = H;
+  cv.style.width = Math.round(W * z) + 'px';
+  cv.style.height = Math.round(H * z) + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  if (!plState.bgTrans) {
+    ctx.fillStyle = plState.bg || '#101014';
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.textBaseline = 'alphabetic';
+
+  const songs = plSongs();
+  const fs = Math.max(8, +plState.fs || 28);
+  const lh = fs * Math.max(1, +plState.lh || 1.6);
+  if (fs < 9) { plUpdateStat(); return; }
+
+  const padX = Math.max(0, +plState.padX || 0);
+  const padTop = Math.max(0, +plState.padTop || 0);
+  const colGap = Math.max(0, +plState.colGap || 0);
+  // 底部也留同样边距，避免最后一行贴着边缘
+  const availH = H - padTop - padX;
+
+  // 标题
+  let y0 = padTop;
+  if (plState.title) {
+    const tfs = Math.max(8, +plState.titleFs || 48);
+    ctx.font = plFontSpec(tfs);
+    ctx.textAlign = 'center';
+    const ty = y0 + tfs * 0.9;
+    plDrawText(ctx, plState.title, W / 2, ty, plState.titleColor || '#00aeec', Math.max(0, +plState.sw || 0) * 0.5, plState.sc || '#000000');
+    ctx.textAlign = 'left';
+    y0 = ty + tfs * 0.7;
+  }
+
+  // 分列
+  const perColCap = Math.max(1, Math.floor((H - y0 - padX) / lh));
+  let cols, perCol;
+  if (plState.autoCol) {
+    perCol = perColCap;
+    cols = Math.max(1, Math.ceil(songs.length / perCol));
+    cols = Math.min(cols, 6);
+  } else {
+    cols = Math.max(1, Math.min(6, +plState.cols || 1));
+    perCol = Math.max(1, Math.ceil(songs.length / cols));
+  }
+  const colW = (W - padX * 2 - colGap * (cols - 1)) / cols;
+  if (colW <= 8) { plUpdateStat(); return; }
+
+  ctx.font = plFontSpec(fs);
+  const startN = Math.max(1, +plState.numStart || 1);
+  songs.forEach((song, i) => {
+    const c = Math.floor(i / perCol);
+    const r = i % perCol;
+    const x = padX + c * (colW + colGap);
+    const y = y0 + r * lh + fs;
+    let label = song;
+    if (plState.number) label = plNumLabel(i + startN) + ' ' + song;
+    plDrawText(ctx, plTruncate(ctx, label, colW), x, y, plState.color || '#ffffff', Math.max(0, +plState.sw || 0), plState.sc || '#000000');
+  });
+
+  // 溢出提示（超出画布高度且列数已封顶）
+  if (songs.length > cols * perCol) {
+    ctx.font = plFontSpec(Math.max(10, fs * 0.7));
+    ctx.fillStyle = 'rgba(255,80,80,0.9)';
+    ctx.fillText(`⚠ 内容超出画布，${songs.length - cols * perCol} 首未显示`, padX, H - 8);
+  }
+  plUpdateStat();
+}
+
+// ---- UI 双向同步 ----
+const PL_INPUTS = [
+  ['pl-fs', 'fs', 'num'], ['pl-lh', 'lh', 'num'], ['pl-cols', 'cols', 'num'],
+  ['pl-fw', 'fw', 'str'], ['pl-color', 'color', 'str'], ['pl-sw', 'sw', 'num'],
+  ['pl-sc', 'sc', 'str'], ['pl-bg', 'bg', 'str'], ['pl-bg-trans', 'bgTrans', 'bool'],
+  ['pl-title', 'title', 'str'], ['pl-title-fs', 'titleFs', 'num'], ['pl-title-color', 'titleColor', 'str'],
+  ['pl-number', 'number', 'bool'], ['pl-number-fmt', 'numFmt', 'str'], ['pl-number-start', 'numStart', 'num'],
+  ['pl-pad-top', 'padTop', 'num'], ['pl-pad-x', 'padX', 'num'], ['pl-col-gap', 'colGap', 'num'],
+  ['pl-auto-col', 'autoCol', 'bool'], ['pl-size', 'size', 'str'], ['pl-zoom', 'zoom', 'num']
+];
+function plSyncToUI() {
+  PL_INPUTS.forEach(([id, key, typ]) => {
+    const el = $('#' + id);
+    if (!el) return;
+    const v = plState[key];
+    if (typ === 'bool') el.checked = !!v;
+    else el.value = v;
+  });
+  const ta = $('#pl-text');
+  if (ta) ta.value = plState.text || '';
+}
+function plBindUI() {
+  PL_INPUTS.forEach(([id, key, typ]) => {
+    const el = $('#' + id);
+    if (!el) return;
+    el.oninput = () => {
+      if (typ === 'bool') plState[key] = el.checked;
+      else if (typ === 'num') plState[key] = parseFloat(el.value) || 0;
+      else plState[key] = el.value;
+      plDraw();
+      plSave();
+    };
+  });
+  const ta = $('#pl-text');
+  if (ta) ta.oninput = () => { plState.text = ta.value; plDraw(); plUpdateStat(); plSave(); };
+
+  document.querySelectorAll('.pl-tools button').forEach(btn => {
+    btn.onclick = () => plApplyOp(btn.dataset.op);
+  });
+
+  $('#pl-open-btn').onclick = () => {
+    plLoad(); plSyncToUI(); plDraw();
+    $('#pl-modal').classList.add('open');
+  };
+  $('#pl-close').onclick = () => { plSave(); $('#pl-modal').classList.remove('open'); };
+  $('#pl-save').onclick = () => {
+    plSave();
+    const b = $('#pl-save');
+    const old = b.textContent;
+    b.textContent = '已保存 ✓';
+    setTimeout(() => { b.textContent = old; }, 1200);
+  };
+
+  // 导出 PNG
+  $('#pl-export').onclick = () => {
+    const cv = $('#pl-canvas');
+    if (!cv) return;
+    const a = document.createElement('a');
+    const d = new Date();
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    a.download = `歌单_${stamp}.png`;
+    a.href = cv.toDataURL('image/png');
+    a.click();
+  };
+
+  // 导出 TXT（整理后的清版）
+  $('#pl-download-txt').onclick = () => {
+    const startN = Math.max(1, +plState.numStart || 1);
+    const lines = plSongs().map((s, i) => plState.number ? plNumLabel(i + startN) + ' ' + s : s);
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.download = '歌单.txt';
+    a.href = URL.createObjectURL(blob);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  };
+
+  // ESC 关闭
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('#pl-modal').classList.contains('open')) {
+      plSave();
+      $('#pl-modal').classList.remove('open');
+    }
+  });
+}
+
 /* ============== Daily icon check ============== */
 // 每天 12:00 自动执行 checkAndApplyIconUpdate（仅编辑器模式）
 function scheduleDailyIconCheck() {
@@ -3391,6 +3861,11 @@ async function init() {
   setupInteraction();
   setupTextItemDrag();
   setupImageItemDrag();
+  // 歌单整理工具（独立画布）
+  plLoad();
+  plBindUI();
+  plSyncToUI();
+  plDraw();
   applyMode();
   render();
 
