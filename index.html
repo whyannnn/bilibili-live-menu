@@ -390,6 +390,17 @@ body.mode-horizontal #phone-overlay { display: none !important; }
 .pl-canvas-bar { height: 38px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--text-dim); }
 .pl-canvas-bar select { padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); }
 .pl-canvas-wrap { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 18px; min-height: 0; }
+/* 预览底色（只影响编辑预览，不写进导出的 PNG） */
+.pl-canvas-wrap.pv-dark { background: #2b2b30; }
+.pl-canvas-wrap.pv-light { background: #d8d8dd; }
+.pl-canvas-wrap.pv-checker {
+  background-color: #cfcfcf;
+  background-image:
+    linear-gradient(45deg, #9a9a9a 25%, transparent 25%, transparent 75%, #9a9a9a 75%),
+    linear-gradient(45deg, #9a9a9a 25%, transparent 25%, transparent 75%, #9a9a9a 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
 #pl-canvas { display: block; background: transparent; box-shadow: 0 4px 24px rgba(0,0,0,0.14); flex-shrink: 0; }
 
 /* 右：样式 */
@@ -728,7 +739,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       <!-- 左：歌曲列表输入 -->
       <div class="pl-col-plain">
         <h3>歌曲列表（一行一首）</h3>
-        <textarea id="pl-text" placeholder="直接粘贴歌名，一行一首。&#10;例：&#10;晴天&#10;稻香&#10;夜曲&#10;&#10;也支持粘贴带序号的：1. 晴天&#10;会自动清理序号。"></textarea>
+        <textarea id="pl-text" placeholder="直接粘贴歌名，一行一首。&#10;&#10;例：&#10;晴天&#10;稻香&#10;七里香&#10;&#10;带风格（用 | 分隔，右侧可选谁在前）：&#10;古风|青花瓷&#10;流行|晴天&#10;&#10;也支持带序号：1. 晴天（会自动清理）"></textarea>
         <div class="pl-tools">
           <button data-op="trim" title="删掉所有空行">去空行</button>
           <button data-op="dedup" title="删掉重复歌名（保留首次出现）">去重</button>
@@ -759,6 +770,12 @@ body.mode-horizontal #phone-overlay { display: none !important; }
             <option value="0.75">75%</option>
             <option value="1">100%</option>
           </select>
+          <label>预览底色</label>
+          <select id="pl-preview-bg" title="只影响编辑时的预览，不写进导出的 PNG">
+            <option value="dark" selected>深灰</option>
+            <option value="light">浅灰</option>
+            <option value="checker">透明棋盘</option>
+          </select>
         </div>
         <div class="pl-canvas-wrap">
           <canvas id="pl-canvas"></canvas>
@@ -767,6 +784,25 @@ body.mode-horizontal #phone-overlay { display: none !important; }
 
       <!-- 右：样式 -->
       <div class="pl-col-style">
+        <h3>排列方式</h3>
+        <div class="row"><label>排列</label><div class="ctrl">
+          <select id="pl-arrange" title="按字数：一个字一组、两个字一组…；按风格+字数：先分风格，风格内再按字数排">
+            <option value="order">保持输入顺序</option>
+            <option value="len">按字数分组</option>
+            <option value="style">按风格 + 字数</option>
+          </select>
+        </div></div>
+        <div class="row"><label>风格写法</label><div class="ctrl">
+          <select id="pl-style-pos" title="用 | 或 ｜ 分隔风格与歌名；也支持 [风格]歌名 自动识别">
+            <option value="before">风格｜歌名</option>
+            <option value="after">歌名｜风格</option>
+          </select>
+        </div></div>
+        <div class="row"><label>分组标题</label><div class="ctrl"><input type="checkbox" id="pl-show-group" checked></div></div>
+        <div class="row"><label>标题字号</label><div class="ctrl"><input type="number" id="pl-group-fs" min="8" max="160" value="34"></div></div>
+        <div class="row"><label>标题色</label><div class="ctrl"><input type="color" id="pl-group-color" value="#00aeec"></div></div>
+
+        <div class="pl-sep"></div>
         <h3>字号 / 行</h3>
         <div class="row"><label>字号</label><div class="ctrl"><input type="number" id="pl-fs" min="8" max="160" value="28"></div></div>
         <div class="row"><label>行高</label><div class="ctrl"><input type="number" id="pl-lh" min="1" max="4" step="0.05" value="1.6"></div></div>
@@ -780,8 +816,8 @@ body.mode-horizontal #phone-overlay { display: none !important; }
         <div class="row"><label>字色</label><div class="ctrl"><input type="color" id="pl-color" value="#ffffff"></div></div>
         <div class="row"><label>描边宽</label><div class="ctrl"><input type="number" id="pl-sw" min="0" max="12" value="3"></div></div>
         <div class="row"><label>描边色</label><div class="ctrl"><input type="color" id="pl-sc" value="#000000"></div></div>
-        <div class="row"><label>背景</label><div class="ctrl"><input type="color" id="pl-bg" value="#101014"></div></div>
-        <div class="row"><label>透明底</label><div class="ctrl"><input type="checkbox" id="pl-bg-trans"></div></div>
+        <div class="row"><label>背景色</label><div class="ctrl"><input type="color" id="pl-bg" value="#101014"></div></div>
+        <div class="row"><label>透明底</label><div class="ctrl"><input type="checkbox" id="pl-bg-trans" checked title="默认开启：导出 PNG 无背景，可直接叠在直播画面上"></div></div>
 
         <div class="pl-sep"></div>
         <h3>标题</h3>
@@ -3022,21 +3058,28 @@ function appendPickerPage() {
 // 与菜单画布（state）互不影响。预览和导出都用 Canvas 2D 绘制，
 // 所以导出的 PNG 和预览 100% 一致，也不依赖 DOM 截图。
 const PL_KEY = 'bili-playlist-v1';
+const PL_VER = 2;
 
 const PL_DEFAULT = {
+  _v: PL_VER,
   text: '',
   size: '1080x1920',
   zoom: 0.35,
+  previewBg: 'dark',
   fs: 28, lh: 1.6, cols: 1, fw: '900',
   color: '#ffffff', sw: 3, sc: '#000000',
-  bg: '#101014', bgTrans: false,
-  title: '今日歌单', titleFs: 48, titleColor: '#00aeec',
+  bg: '#101014', bgTrans: true,
+  // 排列：order 保持顺序 / len 按字数分组 / style 按风格+字数
+  arrange: 'order', stylePos: 'before',
+  showGroupTitle: true, groupFs: 34, groupColor: '#00aeec',
+  title: '', titleFs: 48, titleColor: '#00aeec',
   number: true, numFmt: 'dot', numStart: 1,
   padTop: 80, padX: 80, colGap: 60, autoCol: true
 };
 let plState = Object.assign({}, PL_DEFAULT);
 
 function plSave() {
+  plState._v = PL_VER;
   try { localStorage.setItem(PL_KEY, JSON.stringify(plState)); } catch (e) {}
 }
 function plLoad() {
@@ -3044,7 +3087,13 @@ function plLoad() {
     const raw = localStorage.getItem(PL_KEY);
     if (!raw) return;
     const d = JSON.parse(raw);
-    if (d && typeof d === 'object') plState = Object.assign({}, PL_DEFAULT, d);
+    if (!d || typeof d !== 'object') return;
+    plState = Object.assign({}, PL_DEFAULT, d);
+    // 版本迁移：老数据升级到 v2 → 默认改透明底、默认去掉标题文字
+    if (!d._v || d._v < 2) {
+      plState.bgTrans = true;
+      plState._v = PL_VER;
+    }
   } catch (e) {}
 }
 
@@ -3080,8 +3129,84 @@ function plCollator() {
   }
   return _plCollator;
 }
+// 解析一行：拆出「风格」和「歌名」
+//   支持 [风格]歌名 / 【风格】歌名 / （风格）歌名（自动识别，与 stylePos 无关）
+//   也支持 风格|歌名 或 歌名|风格（| 或 ｜ 分隔），谁在前由 stylePos 决定
+function plParseSong(line) {
+  let t = plCleanLine(line);
+  if (!t) return null;
+  let style = '';
+  const m = t.match(/^[\[【(（]\s*([^\]】)）]{1,10})\s*[\]】)）]\s*(.+)$/);
+  if (m && m[2] && m[2].trim()) {
+    style = m[1].trim();
+    t = m[2].trim();
+  } else {
+    const parts = t.split(/\s*[|｜]\s*/);
+    if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+      if (plState.stylePos === 'after') { t = parts[0].trim(); style = parts[1].trim(); }
+      else { style = parts[0].trim(); t = parts[1].trim(); }
+    }
+  }
+  t = t.trim();
+  if (!t) return null;
+  // 字数：按字符数（中文一字算一个，英文/数字按字符）
+  return { name: t, style, len: Array.from(t).length };
+}
+function plSongsParsed() {
+  return String(plState.text || '').split('\n').map(plParseSong).filter(Boolean);
+}
 function plSongs() {
-  return String(plState.text || '').split('\n').map(plCleanLine).filter(Boolean);
+  return plSongsParsed().map(s => s.name);
+}
+// 字数分组标题："一字" "二字" … 超过十字用数字
+const PL_CN_NUM = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+function plLenLabel(n) {
+  return (n >= 1 && n <= 10 ? PL_CN_NUM[n] : String(n)) + '字';
+}
+
+// 把歌单拍平成「绘制行」：{ type:'group'|'song', text }
+// 排列方式决定分组和顺序，具体分列交给 plDraw 做
+function plRows() {
+  const songs = plSongsParsed();
+  const mode = plState.arrange || 'order';
+  const hasStyle = songs.some(s => s.style);
+  const rows = [];
+  let counter = Math.max(1, +plState.numStart || 1);
+  const songRow = (s) => {
+    rows.push({ type: 'song', text: (plState.number ? plNumLabel(counter++) + ' ' : '') + s.name });
+  };
+  const groupRow = (label) => {
+    if (plState.showGroupTitle) rows.push({ type: 'group', text: label });
+  };
+  const byLen = (arr) => arr.slice().sort((a, b) => a.len - b.len);
+
+  // 选了「按风格」但一条风格标签都没有 → 退回「按字数分组」，比原样罗列更有用
+  const useLen = mode === 'len' || (mode === 'style' && !hasStyle);
+
+  if (useLen) {
+    // 一个字一组、两个字一组……按字数升序
+    const lens = Array.from(new Set(songs.map(s => s.len))).sort((a, b) => a - b);
+    lens.forEach(L => {
+      groupRow(plLenLabel(L));
+      byLen(songs.filter(s => s.len === L)).forEach(songRow);
+    });
+  } else if (mode === 'style' && hasStyle) {
+    // 先按风格分组（风格顺序＝首次出现顺序），每个风格内再按字数升序
+    const order = [];
+    const map = new Map();
+    songs.forEach(s => {
+      const k = s.style || '其他';
+      if (!map.has(k)) { map.set(k, []); order.push(k); }
+      map.get(k).push(s);
+    });
+    order.forEach(k => {
+      groupRow(k);
+      byLen(map.get(k)).forEach(songRow);
+    });
+  } else {
+    songs.forEach(songRow);
+  }
+  return rows;
 }
 function plSetText(lines) {
   plState.text = lines.join('\n');
@@ -3092,10 +3217,18 @@ function plSetText(lines) {
   plSave();
 }
 function plUpdateStat() {
-  const n = plSongs().length;
+  const parsed = plSongsParsed();
+  const n = parsed.length;
   const raw = String(plState.text || '').split('\n').filter(l => l.trim()).length;
+  let extra = '';
+  if (n) {
+    const lens = Array.from(new Set(parsed.map(s => s.len))).sort((a, b) => a - b);
+    const styles = Array.from(new Set(parsed.map(s => s.style).filter(Boolean)));
+    if (styles.length) extra += ` · ${styles.length} 个风格`;
+    extra += ` · ${lens.length} 种字数（${lens.map(l => l + '字').join('/')}）`;
+  }
   const el = $('#pl-stat');
-  if (el) el.textContent = `${n} 首${raw !== n ? `（原始 ${raw} 行）` : ''}`;
+  if (el) el.textContent = `${n} 首${raw !== n ? `（原始 ${raw} 行）` : ''}${extra}`;
 }
 
 function plApplyOp(op) {
@@ -3106,18 +3239,33 @@ function plApplyOp(op) {
     const seen = new Set();
     const out = [];
     lines.forEach(l => {
-      const k = plCleanLine(l);
-      if (!k) return;
-      const key = k.toLowerCase();
+      const s = plParseSong(l);
+      if (!s) return;
+      const key = s.name.toLowerCase();   // 按歌名去重（同一首歌不同风格标签也算重复）
       if (seen.has(key)) return;
       seen.add(key);
       out.push(l);
     });
     lines = out;
   } else if (op === 'clean') {
-    lines = lines.map(plCleanLine).filter(Boolean);
+    lines = lines.map(l => {
+      const s = plParseSong(l);
+      if (!s) return '';
+      // 清格式时把风格写成规范化的 "风格|歌名"，避免反复解析
+      return s.style ? `${s.style}|${s.name}` : s.name;
+    }).filter(Boolean);
   } else if (op === 'sort') {
-    lines = lines.filter(l => l.trim()).sort((a, b) => plCollator().compare(plCleanLine(a), plCleanLine(b)));
+    // 有风格时先按风格，再按歌名（拼音）；风格统一排在前面
+    lines = lines.filter(l => l.trim()).sort((a, b) => {
+      const A = plParseSong(a), B = plParseSong(b);
+      if (!A || !B) return 0;
+      if (A.style !== B.style) {
+        if (!A.style) return 1;
+        if (!B.style) return -1;
+        return plCollator().compare(A.style, B.style);
+      }
+      return plCollator().compare(A.name, B.name);
+    });
   } else if (op === 'shuffle') {
     lines = lines.filter(l => l.trim());
     for (let i = lines.length - 1; i > 0; i--) {
@@ -3172,22 +3320,42 @@ function plDraw() {
   cv.style.height = Math.round(H * z) + 'px';
   const ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, W, H);
+  // 透明底：默认不画背景（clearRect 后就是全透明），可直接叠在直播画面上
   if (!plState.bgTrans) {
     ctx.fillStyle = plState.bg || '#101014';
     ctx.fillRect(0, 0, W, H);
   }
   ctx.textBaseline = 'alphabetic';
 
-  const songs = plSongs();
+  // 预览底色（只影响编辑预览的容器背景，不写进 canvas）
+  const wrap = document.querySelector('.pl-canvas-wrap');
+  if (wrap) {
+    const pv = plState.previewBg || 'dark';
+    wrap.classList.toggle('pv-dark', pv === 'dark');
+    wrap.classList.toggle('pv-light', pv === 'light');
+    wrap.classList.toggle('pv-checker', pv === 'checker');
+  }
+
+  const rows = plRows();
   const fs = Math.max(8, +plState.fs || 28);
-  const lh = fs * Math.max(1, +plState.lh || 1.6);
+  const lhMult = Math.max(1, +plState.lh || 1.6);
+  const lh = fs * lhMult;
   if (fs < 9) { plUpdateStat(); return; }
 
   const padX = Math.max(0, +plState.padX || 0);
   const padTop = Math.max(0, +plState.padTop || 0);
   const colGap = Math.max(0, +plState.colGap || 0);
-  // 底部也留同样边距，避免最后一行贴着边缘
-  const availH = H - padTop - padX;
+  const swVal = Math.max(0, +plState.sw || 0);
+  const scVal = plState.sc || '#000000';
+
+  // 分组标题样式
+  const gfs = Math.max(8, +plState.groupFs || Math.round(fs * 1.2));
+  const gPadTop = Math.round(fs * 0.55);            // 组标题上方留白
+  const gRowH = gfs * lhMult + gPadTop;
+
+  // 每行高度：组标题比歌曲行高（含上方留白）
+  const rowH = rows.map(r => r.type === 'group' ? gRowH : lh);
+  const totalH = rowH.reduce((a, b) => a + b, 0);
 
   // 标题
   let y0 = padTop;
@@ -3196,55 +3364,96 @@ function plDraw() {
     ctx.font = plFontSpec(tfs);
     ctx.textAlign = 'center';
     const ty = y0 + tfs * 0.9;
-    plDrawText(ctx, plState.title, W / 2, ty, plState.titleColor || '#00aeec', Math.max(0, +plState.sw || 0) * 0.5, plState.sc || '#000000');
+    plDrawText(ctx, plState.title, W / 2, ty, plState.titleColor || '#00aeec', swVal * 0.5, scVal);
     ctx.textAlign = 'left';
     y0 = ty + tfs * 0.7;
   }
 
-  // 分列
-  const perColCap = Math.max(1, Math.floor((H - y0 - padX) / lh));
-  let cols, perCol;
+  const availH = Math.max(lh, H - y0 - padX);
+
+  // ---- 分列：按「高度」贪心切列，而不是按行数 ----
+  // targetH 是每列的高度上限；自动分列＝画布可用高度，手动列数＝总高/列数
+  let targetH;
   if (plState.autoCol) {
-    perCol = perColCap;
-    cols = Math.max(1, Math.ceil(songs.length / perCol));
-    cols = Math.min(cols, 6);
+    targetH = availH;
   } else {
-    cols = Math.max(1, Math.min(6, +plState.cols || 1));
-    perCol = Math.max(1, Math.ceil(songs.length / cols));
+    const wantCols = Math.max(1, Math.min(6, +plState.cols || 1));
+    targetH = Math.max(lh, totalH / wantCols);
   }
+
+  const columns = [];
+  let cur = [], curH = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i], h = rowH[i];
+    // 本列放不下这一行 → 换列
+    if (cur.length && curH + h > targetH + 0.5) {
+      columns.push({ rows: cur, h: curH });
+      cur = []; curH = 0;
+    }
+    // 组标题的「孤儿」保护：标题后面连第一首歌都放不下，就把标题推到下一列
+    if (r.type === 'group' && cur.length && curH + h + lh > targetH + 0.5) {
+      columns.push({ rows: cur, h: curH });
+      cur = []; curH = 0;
+    }
+    cur.push(i); curH += h;
+  }
+  if (cur.length) columns.push({ rows: cur, h: curH });
+
+  // 空歌单：标题已经画完了，直接收工（否则下面 columns[0] 越界）
+  if (columns.length === 0) { plUpdateStat(); return; }
+
+  const MAX_COLS = 6;
+  const cols = Math.max(1, Math.min(MAX_COLS, columns.length));
   const colW = (W - padX * 2 - colGap * (cols - 1)) / cols;
   if (colW <= 8) { plUpdateStat(); return; }
 
-  ctx.font = plFontSpec(fs);
-  const startN = Math.max(1, +plState.numStart || 1);
-  songs.forEach((song, i) => {
-    const c = Math.floor(i / perCol);
-    const r = i % perCol;
-    const x = padX + c * (colW + colGap);
-    const y = y0 + r * lh + fs;
-    let label = song;
-    if (plState.number) label = plNumLabel(i + startN) + ' ' + song;
-    plDrawText(ctx, plTruncate(ctx, label, colW), x, y, plState.color || '#ffffff', Math.max(0, +plState.sw || 0), plState.sc || '#000000');
-  });
+  // ---- 绘制 ----
+  let drawn = 0;
+  for (let ci = 0; ci < cols; ci++) {
+    const x = padX + ci * (colW + colGap);
+    let y = y0;
+    for (const i of columns[ci].rows) {
+      const r = rows[i];
+      if (r.type === 'group') {
+        ctx.font = plFontSpec(gfs);
+        ctx.textAlign = 'left';
+        plDrawText(ctx, plTruncate(ctx, r.text, colW), x, y + gPadTop + gfs * 0.85, plState.groupColor || '#00aeec', swVal * 0.6, scVal);
+      } else {
+        ctx.font = plFontSpec(fs);
+        ctx.textAlign = 'left';
+        plDrawText(ctx, plTruncate(ctx, r.text, colW), x, y + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
+      }
+      y += rowH[i];
+      drawn++;
+    }
+  }
 
-  // 溢出提示（超出画布高度且列数已封顶）
-  if (songs.length > cols * perCol) {
+  // 溢出提示（列数已封顶但内容没画完）
+  const hidden = rows.length - drawn;
+  if (hidden > 0) {
     ctx.font = plFontSpec(Math.max(10, fs * 0.7));
-    ctx.fillStyle = 'rgba(255,80,80,0.9)';
-    ctx.fillText(`⚠ 内容超出画布，${songs.length - cols * perCol} 首未显示`, padX, H - 8);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,80,80,0.95)';
+    ctx.fillText(`⚠ 内容超出画布，还有 ${hidden} 行未显示（可缩小字号或增加列数）`, padX, H - 8);
   }
   plUpdateStat();
 }
 
 // ---- UI 双向同步 ----
 const PL_INPUTS = [
+  // 排列
+  ['pl-arrange', 'arrange', 'str'], ['pl-style-pos', 'stylePos', 'str'],
+  ['pl-show-group', 'showGroupTitle', 'bool'], ['pl-group-fs', 'groupFs', 'num'],
+  ['pl-group-color', 'groupColor', 'str'],
+  // 字号 / 行
   ['pl-fs', 'fs', 'num'], ['pl-lh', 'lh', 'num'], ['pl-cols', 'cols', 'num'],
   ['pl-fw', 'fw', 'str'], ['pl-color', 'color', 'str'], ['pl-sw', 'sw', 'num'],
   ['pl-sc', 'sc', 'str'], ['pl-bg', 'bg', 'str'], ['pl-bg-trans', 'bgTrans', 'bool'],
   ['pl-title', 'title', 'str'], ['pl-title-fs', 'titleFs', 'num'], ['pl-title-color', 'titleColor', 'str'],
   ['pl-number', 'number', 'bool'], ['pl-number-fmt', 'numFmt', 'str'], ['pl-number-start', 'numStart', 'num'],
   ['pl-pad-top', 'padTop', 'num'], ['pl-pad-x', 'padX', 'num'], ['pl-col-gap', 'colGap', 'num'],
-  ['pl-auto-col', 'autoCol', 'bool'], ['pl-size', 'size', 'str'], ['pl-zoom', 'zoom', 'num']
+  ['pl-auto-col', 'autoCol', 'bool'], ['pl-size', 'size', 'str'], ['pl-zoom', 'zoom', 'num'],
+  ['pl-preview-bg', 'previewBg', 'str']
 ];
 function plSyncToUI() {
   PL_INPUTS.forEach(([id, key, typ]) => {
@@ -3301,11 +3510,17 @@ function plBindUI() {
     a.click();
   };
 
-  // 导出 TXT（整理后的清版）
+  // 导出 TXT（与画布看到的排版一致，含分组标题）
   $('#pl-download-txt').onclick = () => {
+    const lines = plRows().map(r => r.type === 'group' ? `【${r.text}】` : r.text);
+    // 风格也一并写出来，方便再导入（风格|歌名）
     const startN = Math.max(1, +plState.numStart || 1);
-    const lines = plSongs().map((s, i) => plState.number ? plNumLabel(i + startN) + ' ' + s : s);
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const withStyle = plSongsParsed().map((s, i) => {
+      const label = plState.number ? plNumLabel(i + startN) + ' ' : '';
+      return label + (s.style ? `${s.style}|${s.name}` : s.name);
+    });
+    const out = plState.arrange === 'order' ? withStyle : lines;
+    const blob = new Blob([out.join('\n')], { type: 'text/plain;charset=utf-8' });
     const a = document.createElement('a');
     a.download = '歌单.txt';
     a.href = URL.createObjectURL(blob);
