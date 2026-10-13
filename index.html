@@ -3608,7 +3608,7 @@ function plDraw() {
       const t = plTruncate(ctx, text, wLimit);
       let x = padX;
       if (fmt === 'right') x = W - padX - ctx.measureText(t).width;
-      else if (fmt === 'center') { x = W / 2; ctx.textAlign = 'center'; }
+      else if (fmt === 'center' || fmt === 'auto') { x = W / 2; ctx.textAlign = 'center'; } // 自适应也是居中排列（梯形）
       else ctx.textAlign = 'left';
       if (isGroup) plDrawText(ctx, t, x, yPos + gPadTop + gfs * 0.85, plState.groupColor || '#00aeec', swVal * 0.6, scVal);
       else plDrawText(ctx, t, x, yPos + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
@@ -3622,8 +3622,16 @@ function plDraw() {
         const slot = ln.slot || (availW / 3);
         ctx.font = plFontSpec(fs);
         ctx.textAlign = 'left';
-        ln.items.forEach((t, k) => {
-          plDrawText(ctx, plTruncate(ctx, t, slot - 6), padX + k * slot, y + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
+        // 自适应格式：整行按实际内容宽度在画布上居中（余数行/单首也正居中，形成梯形）
+        const ts = ln.items.map(t => plTruncate(ctx, t, slot - 6));
+        let x0 = padX;
+        if (fmt === 'auto') {
+          const lastW = ctx.measureText(ts[ts.length - 1] || '').width;
+          const blockW = (ts.length - 1) * slot + lastW;
+          x0 = (W - blockW) / 2;
+        }
+        ts.forEach((t, k) => {
+          plDrawText(ctx, t, x0 + k * slot, y + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
           drawn++;
         });
         y += lh;
