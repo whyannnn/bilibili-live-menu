@@ -650,6 +650,13 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       <div class="row" style="margin-bottom: 6px;">
         <button class="btn small primary" id="add-text">+ 添加文字</button>
       </div>
+      <div class="row" style="align-items: flex-start;">
+        <label style="padding-top: 5px;">内容</label>
+        <div class="ctrl">
+          <textarea id="text-content" rows="2" placeholder="选中画布上的文字即可在此修改内容（也可直接双击画布文字改）"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-family:inherit;font-size:12px;line-height:1.5;padding:4px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);"></textarea>
+        </div>
+      </div>
       <div class="row">
         <label>字号</label>
         <div class="ctrl"><input type="number" id="text-font-size" min="6" max="200" value="22"></div>
@@ -1672,6 +1679,14 @@ function renderMenuItems() {
 function syncTextInputsFromSelection() {
   const id = state.textSelection[0];
   const t = state.textItems.find(it => it.id === id);
+  // 「内容」框：只有单选时才可编辑，避免多选时误改
+  const contentEl = $('#text-content');
+  if (contentEl) {
+    const single = state.textSelection.length === 1 ? t : null;
+    contentEl.disabled = state.textSelection.length !== 1;
+    contentEl.value = single ? (single.text || '') : '';
+    // 没有选中文字时不禁用也行，但内容框应该留空提示
+  }
   if (!t) return;
   if ($('#text-font-size')) $('#text-font-size').value = t.fontSize;
   if ($('#text-letter-spacing')) $('#text-letter-spacing').value = (t.letterSpacing != null ? t.letterSpacing : 0);
@@ -1826,7 +1841,7 @@ function renderTextItems() {
 function setupTextItemDrag() {
   const container = $('#text-items');
   if (!container) return;
-  let dragging = null, startPt = null, startEls = [];
+  let dragging = null, startPt = null, startEls = [], moved = false;
   container.addEventListener('mousedown', e => {
     if (spaceDown) return;
     const el = e.target.closest('.text-item');
@@ -1848,6 +1863,7 @@ function setupTextItemDrag() {
       }
     }
     dragging = id;
+    moved = false;
     startPt = { x: e.clientX, y: e.clientY };
     // 记录所有选中 item 的起始位置
     startEls = state.textSelection.map(sid => {
@@ -1860,6 +1876,9 @@ function setupTextItemDrag() {
     const scale = state.zoom;
     const dx = (e.clientX - startPt.x) / scale;
     const dy = (e.clientY - startPt.y) / scale;
+    // 3px 死区：点击时的轻微抖动不算拖动（否则双击会被当成拖拽）
+    if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    moved = true;
     // 性能：拖拽时直接改 DOM 的 left/top，不重建 DOM（每帧重建是拖拽卡顿的主因）
     startEls.forEach(rec => {
       const it = state.textItems.find(t => t.id === rec.id);
@@ -1875,11 +1894,16 @@ function setupTextItemDrag() {
   });
   window.addEventListener('mouseup', () => {
     if (dragging) {
+      const didMove = moved;
       dragging = null;
       startEls = [];
-      // 拖拽结束后再统一重排/对齐/持久化
-      renderTextItems();
-      saveState();
+      moved = false;
+      // 只有真的拖动过才重建 DOM：没拖动就重建会把双击的第二下落到新元素上，
+      // 浏览器就不再派发 dblclick，双击改名/改字功能会整体失效。
+      if (didMove) {
+        renderTextItems();
+        saveState();
+      }
     }
   });
 }
@@ -2441,7 +2465,10 @@ function updateSelectionUI() {
 function updateSelStylePanel() {
   const items = state.menu.items.filter(it => state.selection.includes(it.id));
   if (items.length === 0) return;
-  $('#sel-style-count').textContent = items.length;
+  // 注意：#sel-style-count 这个元素在现行 UI 里已被移除，
+  // 之前这行无条件访问会让整个面板同步直接抛错（字号/描边/字距等全部不生效）
+  const cntEl = $('#sel-style-count');
+  if (cntEl) cntEl.textContent = items.length;
   const first = getEffectiveStyle(items[0]);
   $('#sel-font-size').value = first.fontSize;
   $('#sel-font-weight').value = String(first.fontWeight) === '400' ? '400' : '900';
@@ -2662,7 +2689,7 @@ function setupInteraction() {
 }
 
 function setupItemDrag() {
-  let dragging = false, dragStart = null, dragIds = [];
+  let dragging = false, dragStart = null, dragIds = [], moved = false;
 
   document.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
@@ -2681,6 +2708,7 @@ function setupItemDrag() {
     }
     state.selection = ids;
     dragging = true;
+    moved = false;
     const items = state.menu.items.filter(it => ids.includes(it.id));
     dragStart = {
       x: e.clientX, y: e.clientY,
@@ -2703,6 +2731,9 @@ function setupItemDrag() {
     const scale = state.zoom;
     const dx = (e.clientX - dragStart.x) / scale;
     const dy = (e.clientY - dragStart.y) / scale;
+    // 3px 死区：点击时的轻微抖动不算拖动，否则双击改名会被当成拖拽
+    if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    moved = true;
     // 性能：直接改 DOM 位置，不重建（重建会重新加载图标 <img> 造成闪烁+卡顿）
     dragStart.items.forEach(d => {
       const item = state.menu.items.find(it => it.id === d.id);
@@ -2719,11 +2750,16 @@ function setupItemDrag() {
 
   window.addEventListener('mouseup', () => {
     if (dragging) {
+      const didMove = moved;
       dragging = false;
+      moved = false;
       document.body.classList.remove('panning');
       hideSnapGuides();
-      renderMenuItems();
-      saveState();
+      // 只有真的拖动过才重建 DOM：没拖动就重建会导致双击（改名）不触发
+      if (didMove) {
+        renderMenuItems();
+        saveState();
+      }
     }
   });
 }
@@ -3905,6 +3941,22 @@ function setupControls() {
   bindText('text-color', 'color');
   bindText('text-stroke-width', 'strokeWidth');
   bindText('text-stroke-color', 'strokeColor');
+
+  // 「内容」输入框：直接改选中文字的内容（多选则批量同步）
+  // 只重画画布文字层，不整体 render()，否则正在输入时输入框会失焦
+  const contentEl = $('#text-content');
+  if (contentEl) {
+    contentEl.oninput = () => {
+      const sel = state.textSelection.length ? state.textSelection : [];
+      if (!sel.length) return;
+      sel.forEach(id => {
+        const t = state.textItems.find(it => it.id === id);
+        if (t) t.text = contentEl.value;
+      });
+      renderTextItems();
+      saveState();
+    };
+  }
 
   // 字体下拉变化时，写入 fontFamily；如果用户改了 select 则清空本地字体输入
   const fontSel = $('#text-font-family');
