@@ -845,11 +845,19 @@ body.mode-horizontal #phone-overlay { display: none !important; }
 
         <div class="pl-sep"></div>
         <h3>布局</h3>
-        <div class="row"><label>单列下延</label><div class="ctrl"><input type="checkbox" id="pl-auto-height" checked title="默认开启：所有歌曲排成一列往下延伸，画布高度随内容自动增长，不会分列、不会被截断。关闭后改用「自动分列 / 列数」按画布高度切列"></div></div>
-        <div class="row"><label>上边距</label><div class="ctrl"><input type="number" id="pl-pad-top" min="0" value="80"></div></div>
-        <div class="row"><label>左右边距</label><div class="ctrl"><input type="number" id="pl-pad-x" min="0" value="80"></div></div>
-        <div class="row"><label>列间距</label><div class="ctrl"><input type="number" id="pl-col-gap" min="0" value="60"></div></div>
-        <div class="row"><label>自动分列</label><div class="ctrl"><input type="checkbox" id="pl-auto-col" checked title="仅当「单列下延」关闭时生效：勾选后按画布高度自动分列，不勾选则用上方「列数」"></div></div>
+        <div class="row"><label>格式</label><div class="ctrl">
+          <select id="pl-format" title="靠左 / 靠右默认留白 100 像素；自适应按内容宽度动态分列：短内容 3 个一行，长内容独占整行">
+            <option value="left" selected>靠左（左留白 100）</option>
+            <option value="right">靠右（右留白 100）</option>
+            <option value="center">居中</option>
+            <option value="auto">自适应（短 3 个一行 / 长占整行）</option>
+          </select>
+        </div></div>
+        <div class="row" style="display:none"><label>单列下延</label><div class="ctrl"><input type="checkbox" id="pl-auto-height" checked title="默认开启：所有歌曲排成一列往下延伸，画布高度随内容自动增长，不会分列、不会被截断。关闭后改用「自动分列 / 列数」按画布高度切列"></div></div>
+        <div class="row" style="display:none"><label>上边距</label><div class="ctrl"><input type="number" id="pl-pad-top" min="0" value="80"></div></div>
+        <div class="row" style="display:none"><label>左右边距</label><div class="ctrl"><input type="number" id="pl-pad-x" min="0" value="100"></div></div>
+        <div class="row" style="display:none"><label>列间距</label><div class="ctrl"><input type="number" id="pl-col-gap" min="0" value="60"></div></div>
+        <div class="row" style="display:none"><label>自动分列</label><div class="ctrl"><input type="checkbox" id="pl-auto-col" checked title="仅当「单列下延」关闭时生效：勾选后按画布高度自动分列，不勾选则用上方「列数」"></div></div>
       </div>
     </div>
   </div>
@@ -3064,7 +3072,7 @@ function appendPickerPage() {
 // 与菜单画布（state）互不影响。预览和导出都用 Canvas 2D 绘制，
 // 所以导出的 PNG 和预览 100% 一致，也不依赖 DOM 截图。
 const PL_KEY = 'bili-playlist-v1';
-const PL_VER = 3;
+const PL_VER = 4;
 
 const PL_DEFAULT = {
   _v: PL_VER,
@@ -3080,7 +3088,9 @@ const PL_DEFAULT = {
   showGroupTitle: true, groupFs: 34, groupColor: '#00aeec',
   title: '', titleFs: 48, titleColor: '#00aeec',
   number: true, numFmt: 'dot', numStart: 1,
-  padTop: 80, padX: 80, colGap: 60, autoCol: true, autoHeight: true
+  padTop: 80, padX: 100, colGap: 60, autoCol: true, autoHeight: true,
+  // 格式：left 靠左 / right 靠右 / center 居中 / auto 自适应（短内容3个一行，长内容独占整行）
+  format: 'left'
 };
 let plState = Object.assign({}, PL_DEFAULT);
 
@@ -3095,18 +3105,13 @@ function plLoad() {
     const d = JSON.parse(raw);
     if (!d || typeof d !== 'object') return;
     plState = Object.assign({}, PL_DEFAULT, d);
-    // 版本迁移：老数据升级到 v2 → 默认改透明底、默认去掉标题文字
-    if (!d._v || d._v < 2) {
-      plState.bgTrans = true;
-      plState._v = PL_VER;
-    }
+    // 版本迁移
+    if (!d._v || d._v < 2) plState.bgTrans = true;          // v2：默认改透明底
+    if (!d._v || d._v < 3) plState.previewBg = 'checker';   // v3：预览底色改浅棋格
+    if (!d._v || d._v < 4) { plState.autoHeight = true; plState.format = 'left'; }  // v4：单列下延 + 靠左（留白100）
+    plState._v = PL_VER;
     // zoom 从 number 升级为 string（新增「适应窗口」选项后需要匹配 select 的 value）
     if (typeof plState.zoom === 'number') plState.zoom = String(plState.zoom);
-    // v3：预览底色默认改为浅棋格（画布区透明棋格 + 外围白偏灰）
-    if (!d._v || d._v < 3) {
-      plState.previewBg = 'checker';
-      plState._v = PL_VER;
-    }
   } catch (e) {}
 }
 
@@ -3488,9 +3493,36 @@ function plDraw() {
   // ---- 画布尺寸 ----
   // 单列下延（默认）：宽度取画布尺寸的宽，高度 = 内容高度，随歌单无限往下增长，永不截断
   const single = plState.autoHeight !== false;
+  const fmt = plState.format || 'left';   // left 靠左 / right 靠右 / center 居中 / auto 自适应
+  const availW = Math.max(0, W - padX * 2);
+  const ctx0 = cv.getContext('2d');
+
+  // 自适应格式：先排线才能算总高——短内容 3 个一行，放不下的长内容独占整行
+  let layoutH = totalH;
+  let lines = null;
+  if (single) {
+    if (fmt === 'auto') {
+      const COLS = 3;
+      const colW = availW / COLS;
+      lines = [];
+      let cur = [];
+      const flush = () => { if (cur.length) { lines.push({ kind: 'grid', items: cur }); cur = []; } };
+      ctx0.font = plFontSpec(fs);
+      for (const r of rows) {
+        if (r.type === 'group') { flush(); lines.push({ kind: 'group', text: r.text }); continue; }
+        if (ctx0.measureText(r.text).width > colW - 6) { flush(); lines.push({ kind: 'song', text: r.text }); }
+        else { cur.push(r.text); if (cur.length === COLS) flush(); }
+      }
+      flush();
+      layoutH = lines.reduce((a, ln) => a + (ln.kind === 'group' ? gRowH : lh), 0);
+    } else {
+      lines = rows.map(r => ({ kind: r.type === 'group' ? 'group' : 'song', text: r.text }));
+    }
+  }
+
   let H;
   if (single) {
-    H = Math.round(y0 + totalH + padX);
+    H = Math.round(y0 + layoutH + padX);
     if (!rows.length) H = Math.max(H, Math.round(Hbase * 0.5));
     if (H < 120) H = 120;
     // canvas 尺寸安全上限（32767 是各浏览器都稳的上限；1080×32767 ≈ 700 首歌）
@@ -3509,7 +3541,7 @@ function plDraw() {
   cv.style.width = Math.round(W * z) + 'px';
   cv.style.height = Math.round(H * z) + 'px';
 
-  const ctx = cv.getContext('2d');
+  const ctx = ctx0;
   ctx.clearRect(0, 0, W, H);
   // 透明底：默认不画背景（clearRect 后就是全透明），可直接叠在直播画面上
   if (!plState.bgTrans) {
@@ -3526,14 +3558,40 @@ function plDraw() {
     ctx.textAlign = 'left';
   }
 
-  // ---- 分行 ----
-  const columns = [];
+  // ---- 绘制 ----
+  let drawn = 0;
   if (single) {
-    // 一行往下无限分布：所有行都在同一列，不切列、不截断
-    columns.push({ rows: rows.map((_, i) => i), h: totalH });
+    // 单列下延 + 格式对齐：靠左（留白100）/ 靠右（留白100）/ 居中 / 自适应网格
+    let y = y0;
+    const drawAligned = (text, isGroup, yPos, wLimit) => {
+      ctx.font = isGroup ? plFontSpec(gfs) : plFontSpec(fs);
+      const t = plTruncate(ctx, text, wLimit);
+      let x = padX;
+      if (fmt === 'right') x = W - padX - ctx.measureText(t).width;
+      else if (fmt === 'center') { x = W / 2; ctx.textAlign = 'center'; }
+      else ctx.textAlign = 'left';
+      if (isGroup) plDrawText(ctx, t, x, yPos + gPadTop + gfs * 0.85, plState.groupColor || '#00aeec', swVal * 0.6, scVal);
+      else plDrawText(ctx, t, x, yPos + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
+      ctx.textAlign = 'left';
+    };
+    for (const ln of lines) {
+      if (ln.kind === 'group') { drawAligned(ln.text, true, y, availW); y += gRowH; drawn++; }
+      else if (ln.kind === 'song') { drawAligned(ln.text, false, y, availW); y += lh; drawn++; }
+      else {
+        // 自适应：短内容 3 个一行（长内容在上面已单独成行）
+        const colW3 = availW / 3;
+        ctx.font = plFontSpec(fs);
+        ctx.textAlign = 'left';
+        ln.items.forEach((t, k) => {
+          plDrawText(ctx, plTruncate(ctx, t, colW3 - 6), padX + k * colW3, y + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
+          drawn++;
+        });
+        y += lh;
+      }
+    }
   } else {
-    // 关闭单列下延后：按「高度」贪心切列，而不是按行数
-    // targetH 是每列的高度上限；自动分列＝画布可用高度，手动列数＝总高/列数
+    // 关闭单列下延（隐藏开关，仅老数据会走到这里）：按「高度」贪心切列
+    const columns = [];
     const availH = Math.max(lh, H - y0 - padX);
     let targetH;
     if (plState.autoCol) {
@@ -3560,31 +3618,29 @@ function plDraw() {
     if (cur.length) columns.push({ rows: cur, h: curH });
     // 空歌单：标题已经画完了，直接收工（否则下面 columns[0] 越界）
     if (columns.length === 0) { plUpdateStat(); return; }
-  }
 
-  const MAX_COLS = 6;
-  const cols = single ? 1 : Math.max(1, Math.min(MAX_COLS, columns.length));
-  const colW = (W - padX * 2 - colGap * (cols - 1)) / cols;
-  if (colW <= 8) { plUpdateStat(); return; }
+    const MAX_COLS = 6;
+    const cols = Math.max(1, Math.min(MAX_COLS, columns.length));
+    const colW = (W - padX * 2 - colGap * (cols - 1)) / cols;
+    if (colW <= 8) { plUpdateStat(); return; }
 
-  // ---- 绘制 ----
-  let drawn = 0;
-  for (let ci = 0; ci < cols; ci++) {
-    const x = padX + ci * (colW + colGap);
-    let y = y0;
-    for (const i of columns[ci].rows) {
-      const r = rows[i];
-      if (r.type === 'group') {
-        ctx.font = plFontSpec(gfs);
-        ctx.textAlign = 'left';
-        plDrawText(ctx, plTruncate(ctx, r.text, colW), x, y + gPadTop + gfs * 0.85, plState.groupColor || '#00aeec', swVal * 0.6, scVal);
-      } else {
-        ctx.font = plFontSpec(fs);
-        ctx.textAlign = 'left';
-        plDrawText(ctx, plTruncate(ctx, r.text, colW), x, y + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
+    for (let ci = 0; ci < cols; ci++) {
+      const x = padX + ci * (colW + colGap);
+      let y = y0;
+      for (const i of columns[ci].rows) {
+        const r = rows[i];
+        if (r.type === 'group') {
+          ctx.font = plFontSpec(gfs);
+          ctx.textAlign = 'left';
+          plDrawText(ctx, plTruncate(ctx, r.text, colW), x, y + gPadTop + gfs * 0.85, plState.groupColor || '#00aeec', swVal * 0.6, scVal);
+        } else {
+          ctx.font = plFontSpec(fs);
+          ctx.textAlign = 'left';
+          plDrawText(ctx, plTruncate(ctx, r.text, colW), x, y + fs * 0.85, plState.color || '#ffffff', swVal, scVal);
+        }
+        y += rowH[i];
+        drawn++;
       }
-      y += rowH[i];
-      drawn++;
     }
   }
 
@@ -3625,6 +3681,7 @@ const PL_INPUTS = [
   ['pl-number', 'number', 'bool'], ['pl-number-fmt', 'numFmt', 'str'], ['pl-number-start', 'numStart', 'num'],
   ['pl-pad-top', 'padTop', 'num'], ['pl-pad-x', 'padX', 'num'], ['pl-col-gap', 'colGap', 'num'],
   ['pl-auto-height', 'autoHeight', 'bool'],
+  ['pl-format', 'format', 'str'],
   ['pl-auto-col', 'autoCol', 'bool'], ['pl-size', 'size', 'str'], ['pl-zoom', 'zoom', 'str'],
   ['pl-preview-bg', 'previewBg', 'str']
 ];
