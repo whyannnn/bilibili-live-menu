@@ -389,7 +389,8 @@ body.mode-horizontal #phone-overlay { display: none !important; }
 .pl-canvas-col { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel-2); }
 .pl-canvas-bar { height: 38px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--text-dim); }
 .pl-canvas-bar select { padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); }
-.pl-canvas-wrap { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 18px; min-height: 0; }
+#pl-size-note { font-size: 11px; color: #e8a33d; white-space: nowrap; }
+.pl-canvas-wrap { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 18px; min-height: 0; }
 /* 预览底色（只影响编辑预览，不写进导出的 PNG） */
 .pl-canvas-wrap.pv-dark { background: #2b2b30; }
 .pl-canvas-wrap.pv-light { background: #d8d8dd; }
@@ -762,8 +763,10 @@ body.mode-horizontal #phone-overlay { display: none !important; }
             <option value="720x1280">竖版 720×1280</option>
           </select>
           <span style="flex:1;"></span>
+          <span id="pl-size-note" title="当前实际画布尺寸（含高度自适应结果）"></span>
           <label>预览缩放</label>
-          <select id="pl-zoom">
+          <select id="pl-zoom" title="长歌单建议用「适应窗口」，自动缩放到刚好装下整张画布">
+            <option value="fit">适应窗口</option>
             <option value="0.25">25%</option>
             <option value="0.35" selected>35%</option>
             <option value="0.5">50%</option>
@@ -840,10 +843,11 @@ body.mode-horizontal #phone-overlay { display: none !important; }
 
         <div class="pl-sep"></div>
         <h3>布局</h3>
+        <div class="row"><label>单列下延</label><div class="ctrl"><input type="checkbox" id="pl-auto-height" checked title="默认开启：所有歌曲排成一列往下延伸，画布高度随内容自动增长，不会分列、不会被截断。关闭后改用「自动分列 / 列数」按画布高度切列"></div></div>
         <div class="row"><label>上边距</label><div class="ctrl"><input type="number" id="pl-pad-top" min="0" value="80"></div></div>
         <div class="row"><label>左右边距</label><div class="ctrl"><input type="number" id="pl-pad-x" min="0" value="80"></div></div>
         <div class="row"><label>列间距</label><div class="ctrl"><input type="number" id="pl-col-gap" min="0" value="60"></div></div>
-        <div class="row"><label>自动分列</label><div class="ctrl"><input type="checkbox" id="pl-auto-col" checked title="勾选后按画布高度自动分列，不勾选则用上方「列数」"></div></div>
+        <div class="row"><label>自动分列</label><div class="ctrl"><input type="checkbox" id="pl-auto-col" checked title="仅当「单列下延」关闭时生效：勾选后按画布高度自动分列，不勾选则用上方「列数」"></div></div>
       </div>
     </div>
   </div>
@@ -3064,7 +3068,7 @@ const PL_DEFAULT = {
   _v: PL_VER,
   text: '',
   size: '1080x1920',
-  zoom: 0.35,
+  zoom: '0.35',
   previewBg: 'dark',
   fs: 28, lh: 1.6, cols: 1, fw: '900',
   color: '#ffffff', sw: 3, sc: '#000000',
@@ -3074,7 +3078,7 @@ const PL_DEFAULT = {
   showGroupTitle: true, groupFs: 34, groupColor: '#00aeec',
   title: '', titleFs: 48, titleColor: '#00aeec',
   number: true, numFmt: 'dot', numStart: 1,
-  padTop: 80, padX: 80, colGap: 60, autoCol: true
+  padTop: 80, padX: 80, colGap: 60, autoCol: true, autoHeight: true
 };
 let plState = Object.assign({}, PL_DEFAULT);
 
@@ -3094,6 +3098,8 @@ function plLoad() {
       plState.bgTrans = true;
       plState._v = PL_VER;
     }
+    // zoom 从 number 升级为 string（新增「适应窗口」选项后需要匹配 select 的 value）
+    if (typeof plState.zoom === 'number') plState.zoom = String(plState.zoom);
   } catch (e) {}
 }
 
@@ -3429,19 +3435,7 @@ function plTruncate(ctx, text, maxW) {
 function plDraw() {
   const cv = $('#pl-canvas');
   if (!cv) return;
-  const [W, H] = String(plState.size || '1080x1920').split('x').map(Number);
-  const z = parseFloat(plState.zoom) || 0.35;
-  cv.width = W; cv.height = H;
-  cv.style.width = Math.round(W * z) + 'px';
-  cv.style.height = Math.round(H * z) + 'px';
-  const ctx = cv.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
-  // 透明底：默认不画背景（clearRect 后就是全透明），可直接叠在直播画面上
-  if (!plState.bgTrans) {
-    ctx.fillStyle = plState.bg || '#101014';
-    ctx.fillRect(0, 0, W, H);
-  }
-  ctx.textBaseline = 'alphabetic';
+  const [W, Hbase] = String(plState.size || '1080x1920').split('x').map(Number);
 
   // 预览底色（只影响编辑预览的容器背景，不写进 canvas）
   const wrap = document.querySelector('.pl-canvas-wrap');
@@ -3473,53 +3467,90 @@ function plDraw() {
   const rowH = rows.map(r => r.type === 'group' ? gRowH : lh);
   const totalH = rowH.reduce((a, b) => a + b, 0);
 
-  // 标题
-  let y0 = padTop;
-  if (plState.title) {
-    const tfs = Math.max(8, +plState.titleFs || 48);
+  // 标题占位（基线 + 下方留白）
+  const tfs = Math.max(8, +plState.titleFs || 48);
+  const hasTitle = !!plState.title;
+  const y0 = padTop + (hasTitle ? tfs * 1.6 : 0);
+
+  // ---- 画布尺寸 ----
+  // 单列下延（默认）：宽度取画布尺寸的宽，高度 = 内容高度，随歌单无限往下增长，永不截断
+  const single = plState.autoHeight !== false;
+  let H;
+  if (single) {
+    H = Math.round(y0 + totalH + padX);
+    if (!rows.length) H = Math.max(H, Math.round(Hbase * 0.5));
+    if (H < 120) H = 120;
+    // canvas 尺寸安全上限（32767 是各浏览器都稳的上限；1080×32767 ≈ 700 首歌）
+    if (H > 32767) H = 32767;
+  } else {
+    H = Hbase;
+  }
+
+  // 预览缩放（支持「适应窗口」）
+  let z = parseFloat(plState.zoom) || 0.35;
+  if (String(plState.zoom) === 'fit') {
+    const avail = wrap && wrap.clientHeight ? wrap.clientHeight - 40 : 700;
+    z = Math.max(0.02, Math.min(1, avail / H));
+  }
+  cv.width = W; cv.height = H;
+  cv.style.width = Math.round(W * z) + 'px';
+  cv.style.height = Math.round(H * z) + 'px';
+
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  // 透明底：默认不画背景（clearRect 后就是全透明），可直接叠在直播画面上
+  if (!plState.bgTrans) {
+    ctx.fillStyle = plState.bg || '#101014';
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.textBaseline = 'alphabetic';
+
+  // 标题（居中）
+  if (hasTitle) {
     ctx.font = plFontSpec(tfs);
     ctx.textAlign = 'center';
-    const ty = y0 + tfs * 0.9;
-    plDrawText(ctx, plState.title, W / 2, ty, plState.titleColor || '#00aeec', swVal * 0.5, scVal);
+    plDrawText(ctx, plState.title, W / 2, padTop + tfs * 0.9, plState.titleColor || '#00aeec', swVal * 0.5, scVal);
     ctx.textAlign = 'left';
-    y0 = ty + tfs * 0.7;
   }
 
-  const availH = Math.max(lh, H - y0 - padX);
-
-  // ---- 分列：按「高度」贪心切列，而不是按行数 ----
-  // targetH 是每列的高度上限；自动分列＝画布可用高度，手动列数＝总高/列数
-  let targetH;
-  if (plState.autoCol) {
-    targetH = availH;
-  } else {
-    const wantCols = Math.max(1, Math.min(6, +plState.cols || 1));
-    targetH = Math.max(lh, totalH / wantCols);
-  }
-
+  // ---- 分行 ----
   const columns = [];
-  let cur = [], curH = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i], h = rowH[i];
-    // 本列放不下这一行 → 换列
-    if (cur.length && curH + h > targetH + 0.5) {
-      columns.push({ rows: cur, h: curH });
-      cur = []; curH = 0;
+  if (single) {
+    // 一行往下无限分布：所有行都在同一列，不切列、不截断
+    columns.push({ rows: rows.map((_, i) => i), h: totalH });
+  } else {
+    // 关闭单列下延后：按「高度」贪心切列，而不是按行数
+    // targetH 是每列的高度上限；自动分列＝画布可用高度，手动列数＝总高/列数
+    const availH = Math.max(lh, H - y0 - padX);
+    let targetH;
+    if (plState.autoCol) {
+      targetH = availH;
+    } else {
+      const wantCols = Math.max(1, Math.min(6, +plState.cols || 1));
+      targetH = Math.max(lh, totalH / wantCols);
     }
-    // 组标题的「孤儿」保护：标题后面连第一首歌都放不下，就把标题推到下一列
-    if (r.type === 'group' && cur.length && curH + h + lh > targetH + 0.5) {
-      columns.push({ rows: cur, h: curH });
-      cur = []; curH = 0;
+    let cur = [], curH = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i], h = rowH[i];
+      // 本列放不下这一行 → 换列
+      if (cur.length && curH + h > targetH + 0.5) {
+        columns.push({ rows: cur, h: curH });
+        cur = []; curH = 0;
+      }
+      // 组标题的「孤儿」保护：标题后面连第一首歌都放不下，就把标题推到下一列
+      if (r.type === 'group' && cur.length && curH + h + lh > targetH + 0.5) {
+        columns.push({ rows: cur, h: curH });
+        cur = []; curH = 0;
+      }
+      cur.push(i); curH += h;
     }
-    cur.push(i); curH += h;
+    if (cur.length) columns.push({ rows: cur, h: curH });
+    // 空歌单：标题已经画完了，直接收工（否则下面 columns[0] 越界）
+    if (columns.length === 0) { plUpdateStat(); return; }
   }
-  if (cur.length) columns.push({ rows: cur, h: curH });
-
-  // 空歌单：标题已经画完了，直接收工（否则下面 columns[0] 越界）
-  if (columns.length === 0) { plUpdateStat(); return; }
 
   const MAX_COLS = 6;
-  const cols = Math.max(1, Math.min(MAX_COLS, columns.length));
+  const cols = single ? 1 : Math.max(1, Math.min(MAX_COLS, columns.length));
   const colW = (W - padX * 2 - colGap * (cols - 1)) / cols;
   if (colW <= 8) { plUpdateStat(); return; }
 
@@ -3544,7 +3575,7 @@ function plDraw() {
     }
   }
 
-  // 溢出提示（列数已封顶但内容没画完）
+  // 溢出提示（单列下延时不会出现；分列模式或超出 canvas 高度上限时可能出现）
   const hidden = rows.length - drawn;
   if (hidden > 0) {
     ctx.font = plFontSpec(Math.max(10, fs * 0.7));
@@ -3552,6 +3583,18 @@ function plDraw() {
     ctx.fillStyle = 'rgba(255,80,80,0.95)';
     ctx.fillText(`⚠ 内容超出画布，还有 ${hidden} 行未显示（可缩小字号或增加列数）`, padX, H - 8);
   }
+
+  const note = $('#pl-size-note');
+  if (note) note.textContent = `实际 ${W} × ${H}` + (single ? '（高度自适应）' : '');
+
+  // 单列下延时「自动分列 / 列数」不生效，置灰提示
+  [['#pl-auto-col'], ['#pl-cols']].forEach(([sel]) => {
+    const el = $(sel);
+    if (!el) return;
+    el.disabled = single;
+    const row = el.closest('.row');
+    if (row) row.style.opacity = single ? '0.4' : '1';
+  });
   plUpdateStat();
 }
 
@@ -3568,7 +3611,8 @@ const PL_INPUTS = [
   ['pl-title', 'title', 'str'], ['pl-title-fs', 'titleFs', 'num'], ['pl-title-color', 'titleColor', 'str'],
   ['pl-number', 'number', 'bool'], ['pl-number-fmt', 'numFmt', 'str'], ['pl-number-start', 'numStart', 'num'],
   ['pl-pad-top', 'padTop', 'num'], ['pl-pad-x', 'padX', 'num'], ['pl-col-gap', 'colGap', 'num'],
-  ['pl-auto-col', 'autoCol', 'bool'], ['pl-size', 'size', 'str'], ['pl-zoom', 'zoom', 'num'],
+  ['pl-auto-height', 'autoHeight', 'bool'],
+  ['pl-auto-col', 'autoCol', 'bool'], ['pl-size', 'size', 'str'], ['pl-zoom', 'zoom', 'str'],
   ['pl-preview-bg', 'previewBg', 'str']
 ];
 function plSyncToUI() {
