@@ -775,8 +775,8 @@ body.mode-horizontal #phone-overlay { display: none !important; }
             <option value="0.75">75%</option>
             <option value="1">100%</option>
           </select>
-          <label>预览底色</label>
-          <select id="pl-preview-bg" title="只影响编辑时的预览，不写进导出的 PNG">
+          <label style="display:none">预览底色</label>
+          <select id="pl-preview-bg" style="display:none" title="只影响编辑时的预览，不写进导出的 PNG">
             <option value="checker" selected>浅棋格</option>
             <option value="dark">深灰</option>
             <option value="light">浅灰</option>
@@ -797,7 +797,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
             <option value="style">按风格 + 字数</option>
           </select>
         </div></div>
-        <div class="row" id="pl-row-style-pos"><label>风格写法</label><div class="ctrl">
+        <div class="row" id="pl-row-style-pos" style="display:none"><label>风格写法</label><div class="ctrl">
           <select id="pl-style-pos" title="用 | 或 ｜ 分隔风格与歌名；也支持 [风格]歌名 自动识别">
             <option value="before">风格｜歌名</option>
             <option value="after">歌名｜风格</option>
@@ -822,7 +822,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
         <div class="row"><label>描边宽</label><div class="ctrl"><input type="number" id="pl-sw" min="0" max="12" value="3"></div></div>
         <div class="row"><label>描边色</label><div class="ctrl"><input type="color" id="pl-sc" value="#000000"></div></div>
         <div class="row" id="pl-row-bg"><label>背景色</label><div class="ctrl"><input type="color" id="pl-bg" value="#101014"></div></div>
-        <div class="row"><label>透明底</label><div class="ctrl"><input type="checkbox" id="pl-bg-trans" checked title="默认开启：导出 PNG 无背景，可直接叠在直播画面上"></div></div>
+        <div class="row" style="display:none"><label>透明底</label><div class="ctrl"><input type="checkbox" id="pl-bg-trans" checked title="默认开启：导出 PNG 无背景，可直接叠在直播画面上"></div></div>
 
         <div class="pl-sep"></div>
         <h3>标题</h3>
@@ -3072,7 +3072,7 @@ function appendPickerPage() {
 // 与菜单画布（state）互不影响。预览和导出都用 Canvas 2D 绘制，
 // 所以导出的 PNG 和预览 100% 一致，也不依赖 DOM 截图。
 const PL_KEY = 'bili-playlist-v1';
-const PL_VER = 4;
+const PL_VER = 5;
 
 const PL_DEFAULT = {
   _v: PL_VER,
@@ -3109,6 +3109,7 @@ function plLoad() {
     if (!d._v || d._v < 2) plState.bgTrans = true;          // v2：默认改透明底
     if (!d._v || d._v < 3) plState.previewBg = 'checker';   // v3：预览底色改浅棋格
     if (!d._v || d._v < 4) { plState.autoHeight = true; plState.format = 'left'; }  // v4：单列下延 + 靠左（留白100）
+    if (!d._v || d._v < 5) { plState.bgTrans = true; plState.previewBg = 'checker'; }  // v5：锁透明底 + 浅棋格（对应控件已隐藏）
     plState._v = PL_VER;
     // zoom 从 number 升级为 string（新增「适应窗口」选项后需要匹配 select 的 value）
     if (typeof plState.zoom === 'number') plState.zoom = String(plState.zoom);
@@ -3305,9 +3306,7 @@ function plUpdateStat() {
   const el = $('#pl-stat');
   if (el) el.textContent = `${n} 首${raw !== n ? `（原始 ${raw} 行）` : ''}${extra}`;
 
-  // 按需显隐：「风格写法」只在用到风格标签/风格分组时出现；「背景色」只在关闭透明底时出现
-  const spRow = $('#pl-row-style-pos');
-  if (spRow) spRow.style.display = (plState.arrange === 'style' || parsed.some(s => s.style)) ? '' : 'none';
+  // 「背景色」只在关闭透明底时出现（透明底/风格写法已固定隐藏）
   const bgRow = $('#pl-row-bg');
   if (bgRow) bgRow.style.display = plState.bgTrans ? 'none' : '';
 }
