@@ -739,7 +739,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       <!-- 左：歌曲列表输入 -->
       <div class="pl-col-plain">
         <h3>歌曲列表（一行一首）</h3>
-        <textarea id="pl-text" placeholder="直接粘贴歌名，一行一首。&#10;&#10;例：&#10;晴天&#10;稻香&#10;七里香&#10;&#10;带风格（用 | 分隔，右侧可选谁在前）：&#10;古风|青花瓷&#10;流行|晴天&#10;&#10;也支持带序号：1. 晴天（会自动清理）"></textarea>
+        <textarea id="pl-text" placeholder="直接粘贴歌名，一行一首。&#10;&#10;用 ## 做分组标题（自动成为青色分组名）：&#10;## 古风&#10;青花瓷、卷珠帘、千山万水&#10;&#10;一行多首用 、 分隔也可以；带序号 1. 晴天 会自动清理"></textarea>
         <div class="pl-tools">
           <button data-op="trim" title="删掉所有空行">去空行</button>
           <button data-op="dedup" title="删掉重复歌名（保留首次出现）">去重</button>
@@ -3132,6 +3132,20 @@ function plCollator() {
 // 解析一行：拆出「风格」和「歌名」
 //   支持 [风格]歌名 / 【风格】歌名 / （风格）歌名（自动识别，与 stylePos 无关）
 //   也支持 风格|歌名 或 歌名|风格（| 或 ｜ 分隔），谁在前由 stylePos 决定
+// 一行里可能塞了多首（用 、 ； ; 分隔），拆开
+function plSplitSongs(line) {
+  return String(line || '').split(/[、；;]/).map(s => s.trim()).filter(Boolean);
+}
+
+// 分组标题行：## 组名 / # 组名 / ### 组名（markdown 风格）
+function plIsHeader(line) {
+  return /^\s*#{1,6}\s*\S/.test(String(line || ''));
+}
+function plHeaderText(line) {
+  const m = String(line || '').match(/^\s*#{1,6}\s*(.+?)\s*#*\s*$/);
+  return m ? m[1].trim() : '';
+}
+
 function plParseSong(line) {
   let t = plCleanLine(line);
   if (!t) return null;
@@ -3152,8 +3166,20 @@ function plParseSong(line) {
   // 字数：按字符数（中文一字算一个，英文/数字按字符）
   return { name: t, style, len: Array.from(t).length };
 }
+// 取所有歌曲（跳过 ## 分组标题行；一行多首会被拆开）
 function plSongsParsed() {
-  return String(plState.text || '').split('\n').map(plParseSong).filter(Boolean);
+  const out = [];
+  String(plState.text || '').split('\n').forEach(line => {
+    if (plIsHeader(line)) return;
+    plSplitSongs(line).forEach(part => {
+      const s = plParseSong(part);
+      if (s) out.push(s);
+    });
+  });
+  return out;
+}
+function plHasHeaders() {
+  return String(plState.text || '').split('\n').some(plIsHeader);
 }
 function plSongs() {
   return plSongsParsed().map(s => s.name);
@@ -3167,18 +3193,43 @@ function plLenLabel(n) {
 // 把歌单拍平成「绘制行」：{ type:'group'|'song', text }
 // 排列方式决定分组和顺序，具体分列交给 plDraw 做
 function plRows() {
-  const songs = plSongsParsed();
-  const mode = plState.arrange || 'order';
-  const hasStyle = songs.some(s => s.style);
   const rows = [];
   let counter = Math.max(1, +plState.numStart || 1);
   const songRow = (s) => {
     rows.push({ type: 'song', text: (plState.number ? plNumLabel(counter++) + ' ' : '') + s.name });
   };
   const groupRow = (label) => {
-    if (plState.showGroupTitle) rows.push({ type: 'group', text: label });
+    if (plState.showGroupTitle && label) rows.push({ type: 'group', text: label });
   };
   const byLen = (arr) => arr.slice().sort((a, b) => a.len - b.len);
+
+  // ---- 作者用 ## 标了分组 → 完全尊重作者的结构 ----
+  // 分组顺序＝输入顺序；组内歌曲：保持顺序模式下按输入顺序，其余模式按字数升序
+  if (plHasHeaders()) {
+    const lines = String(plState.text || '').split('\n');
+    let curSongs = [];
+    let curLabel = '';
+    const flush = () => {
+      if (curLabel) groupRow(curLabel);
+      const arr = (plState.arrange === 'order') ? curSongs : byLen(curSongs);
+      arr.forEach(songRow);
+      curSongs = []; curLabel = '';
+    };
+    lines.forEach(line => {
+      if (plIsHeader(line)) { flush(); curLabel = plHeaderText(line); return; }
+      if (!line.trim()) return;
+      plSplitSongs(line).forEach(part => {
+        const s = plParseSong(part);
+        if (s) curSongs.push(s);
+      });
+    });
+    flush();
+    return rows;
+  }
+
+  const songs = plSongsParsed();
+  const mode = plState.arrange || 'order';
+  const hasStyle = songs.some(s => s.style);
 
   // 选了「按风格」但一条风格标签都没有 → 退回「按字数分组」，比原样罗列更有用
   const useLen = mode === 'len' || (mode === 'style' && !hasStyle);
@@ -3217,14 +3268,20 @@ function plSetText(lines) {
   plSave();
 }
 function plUpdateStat() {
+  const lines = String(plState.text || '').split('\n');
   const parsed = plSongsParsed();
   const n = parsed.length;
-  const raw = String(plState.text || '').split('\n').filter(l => l.trim()).length;
+  const raw = lines.filter(l => l.trim()).length;
   let extra = '';
   if (n) {
+    const headers = lines.filter(plIsHeader).length;
+    if (headers) {
+      extra += ` · ${headers} 个分组（##）`;
+    } else {
+      const styles = Array.from(new Set(parsed.map(s => s.style).filter(Boolean)));
+      if (styles.length) extra += ` · ${styles.length} 个风格`;
+    }
     const lens = Array.from(new Set(parsed.map(s => s.len))).sort((a, b) => a - b);
-    const styles = Array.from(new Set(parsed.map(s => s.style).filter(Boolean)));
-    if (styles.length) extra += ` · ${styles.length} 个风格`;
     extra += ` · ${lens.length} 种字数（${lens.map(l => l + '字').join('/')}）`;
   }
   const el = $('#pl-stat');
@@ -3234,29 +3291,41 @@ function plUpdateStat() {
 function plApplyOp(op) {
   let lines = String(plState.text || '').split('\n');
   if (op === 'trim') {
-    lines = lines.filter(l => l.trim());
+    lines = lines.filter(l => l.trim() || plIsHeader(l));
   } else if (op === 'dedup') {
     const seen = new Set();
     const out = [];
     lines.forEach(l => {
-      const s = plParseSong(l);
-      if (!s) return;
-      const key = s.name.toLowerCase();   // 按歌名去重（同一首歌不同风格标签也算重复）
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push(l);
+      if (plIsHeader(l)) { out.push(l); return; }   // 分组标题原样保留
+      if (!l.trim()) return;
+      const kept = [];
+      plSplitSongs(l).forEach(part => {
+        const s = plParseSong(part);
+        if (!s) return;
+        const key = s.name.toLowerCase();           // 按歌名去重（同一首歌不同风格标签也算重复）
+        if (seen.has(key)) return;
+        seen.add(key);
+        kept.push(part);
+      });
+      if (kept.length) out.push(kept.join('、'));
     });
     lines = out;
   } else if (op === 'clean') {
-    lines = lines.map(l => {
-      const s = plParseSong(l);
-      if (!s) return '';
-      // 清格式时把风格写成规范化的 "风格|歌名"，避免反复解析
-      return s.style ? `${s.style}|${s.name}` : s.name;
-    }).filter(Boolean);
+    // 清格式：## 标题规范化；一行多首（、分隔）拆成一行一首
+    const out = [];
+    lines.forEach(l => {
+      if (plIsHeader(l)) { out.push('## ' + plHeaderText(l)); return; }
+      plSplitSongs(l).forEach(part => {
+        const s = plParseSong(part);
+        if (!s) return;
+        out.push(s.style ? `${s.style}|${s.name}` : s.name);
+      });
+    });
+    lines = out;
   } else if (op === 'sort') {
-    // 有风格时先按风格，再按歌名（拼音）；风格统一排在前面
-    lines = lines.filter(l => l.trim()).sort((a, b) => {
+    // 有 ## 分组：组内排序（组与组保持输入顺序）；无分组：全局排序
+    // 有风格先按风格，再按歌名（拼音）；风格统一排在前面
+    const cmp = (a, b) => {
       const A = plParseSong(a), B = plParseSong(b);
       if (!A || !B) return 0;
       if (A.style !== B.style) {
@@ -3265,15 +3334,62 @@ function plApplyOp(op) {
         return plCollator().compare(A.style, B.style);
       }
       return plCollator().compare(A.name, B.name);
-    });
+    };
+    if (plHasHeaders()) {
+      const segments = [];
+      let cur = { header: null, songs: [] };
+      lines.forEach(l => {
+        if (plIsHeader(l)) {
+          if (cur.header !== null || cur.songs.length) segments.push(cur);
+          cur = { header: l, songs: [] };
+        } else if (l.trim()) {
+          plSplitSongs(l).forEach(p => { const s = plParseSong(p); if (s) cur.songs.push(p); });
+        }
+      });
+      if (cur.header !== null || cur.songs.length) segments.push(cur);
+      lines = [];
+      segments.forEach(seg => {
+        if (seg.header !== null) lines.push(seg.header);
+        lines.push(...seg.songs.sort(cmp));
+      });
+    } else {
+      lines = lines.filter(l => l.trim()).sort(cmp);
+    }
   } else if (op === 'shuffle') {
-    lines = lines.filter(l => l.trim());
-    for (let i = lines.length - 1; i > 0; i--) {
+    // 乱序：## 分组标题留在原位，只打乱歌曲
+    const hasH = plHasHeaders();
+    const songs = [];
+    lines.forEach(l => {
+      if (plIsHeader(l)) return;
+      if (!l.trim()) return;
+      plSplitSongs(l).forEach(p => { const s = plParseSong(p); if (s) songs.push(p); });
+    });
+    for (let i = songs.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [lines[i], lines[j]] = [lines[j], lines[i]];
+      [songs[i], songs[j]] = [songs[j], songs[i]];
+    }
+    if (hasH) {
+      let k = 0;
+      lines = lines.map(l => (plIsHeader(l) || !l.trim()) ? l : (songs[k++] || l));
+    } else {
+      lines = songs;
     }
   } else if (op === 'reverse') {
-    lines = lines.filter(l => l.trim()).reverse();
+    // 倒序：## 分组标题留在原位，只倒歌曲
+    const hasH = plHasHeaders();
+    const songs = [];
+    lines.forEach(l => {
+      if (plIsHeader(l)) return;
+      if (!l.trim()) return;
+      plSplitSongs(l).forEach(p => { const s = plParseSong(p); if (s) songs.push(p); });
+    });
+    songs.reverse();
+    if (hasH) {
+      let k = 0;
+      lines = lines.map(l => (plIsHeader(l) || !l.trim()) ? l : (songs[k++] || l));
+    } else {
+      lines = songs;
+    }
   }
   plSetText(lines);
 }
