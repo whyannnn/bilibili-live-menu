@@ -3220,7 +3220,7 @@ function plRows() {
   const rows = [];
   let counter = Math.max(1, +plState.numStart || 1);
   const songRow = (s) => {
-    rows.push({ type: 'song', text: (plState.number ? plNumLabel(counter++) + ' ' : '') + s.name, len: s.len });
+    rows.push({ type: 'song', text: (plState.number ? plNumLabel(counter++) + ' ' : '') + s.name, name: s.name, len: s.len });
   };
   const groupRow = (label) => {
     if (plState.showGroupTitle && label) rows.push({ type: 'group', text: label });
@@ -3508,11 +3508,16 @@ function plDraw() {
     if (fmt === 'auto') {
       ctx0.font = plFontSpec(fs);
       // ---- 自适应排版规则 ----
-      // 1) 同一 ## 分类内按「歌名字数」升序排（短 → 长，形成阶梯）
-      // 2) 字数相同的歌名一行横向排，最多 3 个，超出自动换行
-      // 3) 长歌名独占一整行：宽度 > 1/3 可用宽度，或 字数 ≥ 5 且 ≥ 3 倍最短歌名
+      // 1) 同一 ## 分类内按「歌名实际渲染宽度」升序排（短 → 长，形成阶梯）
+      //    ★ 英文歌按实际字符宽度算，不按字母个数（12 个字母 ≈ 6 个汉字宽）
+      // 2) 宽度接近的歌名（半个汉字宽为一档）一行横向排，最多 3 个
+      // 3) 长歌名独占一整行：宽度 > 1/3 可用宽度，或 ≥ max(5 个汉字宽, 3 倍最短歌名)
       // 4) ## 分类标题（华语流行 / 老歌）单独占一整行
       // 5) 整行最大基准宽度 = 最长歌名的宽度（并保证 3 个短歌名能并排）
+      // 注：排序/分档/长短判定用「歌名本身宽度」；列宽用「含序号的绘制宽度」，避免序号撑破列
+      const wName = (r) => ctx0.measureText(r.name != null ? r.name : r.text).width;
+      const wDisp = (r) => ctx0.measureText(r.text).width;
+
       const segs = [];
       let seg = [];
       for (const r of rows) {
@@ -3523,43 +3528,45 @@ function plDraw() {
 
       const allSongs = [];
       segs.forEach(s => s.songs.forEach(r => allSongs.push(r)));
-      const lenOf = (r) => (r.len != null ? r.len : Array.from(r.text).length);
-      let maxNameW = 0, minLen = Infinity;
+      let maxNameW = 0, minNameW = Infinity, maxDispW = 0;
       allSongs.forEach(r => {
-        const w = ctx0.measureText(r.text).width;
+        const w = wName(r);
         if (w > maxNameW) maxNameW = w;
-        if (lenOf(r) < minLen) minLen = lenOf(r);
+        if (w < minNameW) minNameW = w;
+        const d = wDisp(r);
+        if (d > maxDispW) maxDispW = d;
       });
-      if (!isFinite(minLen)) minLen = 1;
-      const widThr = availW / 3;                    // 1/3 容器宽度
-      const lenThr = Math.max(5, 3 * minLen);       // 全短歌单不会误判为长
-      const isLong = (r) => ctx0.measureText(r.text).width > widThr + 0.5 || lenOf(r) >= lenThr;
+      if (!isFinite(minNameW)) minNameW = 0;
+      const widThr = availW / 3;                       // 1/3 容器宽度
+      const longThr = Math.max(5 * fs, 3 * minNameW);  // 全短歌单不会误判为长
+      const isLong = (r) => wName(r) > widThr + 0.5 || wName(r) >= longThr;
 
-      let maxShortW = 0;
+      let maxShortDisp = 0;
       allSongs.forEach(r => {
         if (isLong(r)) return;
-        const w = ctx0.measureText(r.text).width;
-        if (w > maxShortW) maxShortW = w;
+        const d = wDisp(r);
+        if (d > maxShortDisp) maxShortDisp = d;
       });
-      let rowW = Math.min(availW, Math.max(maxNameW, maxShortW * 3));
+      let rowW = Math.min(availW, Math.max(maxDispW, maxShortDisp * 3));
       if (!(rowW > 0)) rowW = availW;
       const slot = rowW / 3;
+      const bucketOf = (r) => Math.round(wName(r) / fs);   // 一个汉字宽为一档（英文按等价汉字宽度折算）
 
       lines = [];
       segs.forEach(sg => {
         if (!sg.songs.length && !sg.label) return;
         if (sg.label) lines.push({ kind: 'group', text: sg.label });
-        const list = sg.songs.slice().sort((a, b) => lenOf(a) - lenOf(b));   // 稳定排序：同字数保持输入顺序
-        // 同一字数的歌名归为一档；档内先补「余数」那一行，再满 3 个一行
-        // （这样每档从窄到宽，整体形成阶梯：1字4个 → 先1个，再3个）
-        const byClass = new Map();
+        const list = sg.songs.slice().sort((a, b) => wName(a) - wName(b));   // 稳定排序：等宽保持输入顺序
+        // 宽度同档的归为一组；组内先补「余数」那一行，再满 3 个一行
+        // （这样每组从窄到宽，整体形成阶梯）
+        const byBucket = new Map();
         list.forEach(r => {
-          const L = lenOf(r);
-          if (!byClass.has(L)) byClass.set(L, []);
-          byClass.get(L).push(r);
+          const b = bucketOf(r);
+          if (!byBucket.has(b)) byBucket.set(b, []);
+          byBucket.get(b).push(r);
         });
-        Array.from(byClass.keys()).sort((a, b) => a - b).forEach(L => {
-          const arr = byClass.get(L);
+        Array.from(byBucket.keys()).sort((a, b) => a - b).forEach(b => {
+          const arr = byBucket.get(b);
           const shorts = arr.filter(r => !isLong(r));
           const longs = arr.filter(r => isLong(r));
           let i = 0;
