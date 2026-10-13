@@ -3220,7 +3220,7 @@ function plRows() {
   const rows = [];
   let counter = Math.max(1, +plState.numStart || 1);
   const songRow = (s) => {
-    rows.push({ type: 'song', text: (plState.number ? plNumLabel(counter++) + ' ' : '') + s.name });
+    rows.push({ type: 'song', text: (plState.number ? plNumLabel(counter++) + ' ' : '') + s.name, len: s.len });
   };
   const groupRow = (label) => {
     if (plState.showGroupTitle && label) rows.push({ type: 'group', text: label });
@@ -3507,28 +3507,68 @@ function plDraw() {
   if (single) {
     if (fmt === 'auto') {
       ctx0.font = plFontSpec(fs);
-      // 长歌名判定：文字宽度 > 1/3 容器宽度（容器 = 去掉左右留白后的可用宽度）
-      const thr = availW / 3;
-      let maxNameW = 0, maxShortW = 0;
+      // ---- 自适应排版规则 ----
+      // 1) 同一 ## 分类内按「歌名字数」升序排（短 → 长，形成阶梯）
+      // 2) 字数相同的歌名一行横向排，最多 3 个，超出自动换行
+      // 3) 长歌名独占一整行：宽度 > 1/3 可用宽度，或 字数 ≥ 5 且 ≥ 3 倍最短歌名
+      // 4) ## 分类标题（华语流行 / 老歌）单独占一整行
+      // 5) 整行最大基准宽度 = 最长歌名的宽度（并保证 3 个短歌名能并排）
+      const segs = [];
+      let seg = [];
       for (const r of rows) {
-        if (r.type === 'group') continue;
+        if (r.type === 'group') { segs.push({ label: r.text, songs: seg }); seg = []; }
+        else seg.push(r);
+      }
+      segs.push({ label: '', songs: seg });
+
+      const allSongs = [];
+      segs.forEach(s => s.songs.forEach(r => allSongs.push(r)));
+      const lenOf = (r) => (r.len != null ? r.len : Array.from(r.text).length);
+      let maxNameW = 0, minLen = Infinity;
+      allSongs.forEach(r => {
         const w = ctx0.measureText(r.text).width;
         if (w > maxNameW) maxNameW = w;
-        if (w <= thr && w > maxShortW) maxShortW = w;
-      }
-      // 整行最大基准宽度 = 以最长歌名为准；同时保证 3 个短歌名能并排放下
+        if (lenOf(r) < minLen) minLen = lenOf(r);
+      });
+      if (!isFinite(minLen)) minLen = 1;
+      const widThr = availW / 3;                    // 1/3 容器宽度
+      const lenThr = Math.max(5, 3 * minLen);       // 全短歌单不会误判为长
+      const isLong = (r) => ctx0.measureText(r.text).width > widThr + 0.5 || lenOf(r) >= lenThr;
+
+      let maxShortW = 0;
+      allSongs.forEach(r => {
+        if (isLong(r)) return;
+        const w = ctx0.measureText(r.text).width;
+        if (w > maxShortW) maxShortW = w;
+      });
       let rowW = Math.min(availW, Math.max(maxNameW, maxShortW * 3));
       if (!(rowW > 0)) rowW = availW;
       const slot = rowW / 3;
+
       lines = [];
-      let cur = [];
-      const flush = () => { if (cur.length) { lines.push({ kind: 'grid', items: cur, slot }); cur = []; } };
-      for (const r of rows) {
-        if (r.type === 'group') { flush(); lines.push({ kind: 'group', text: r.text }); continue; }   // 标题独占整行
-        if (ctx0.measureText(r.text).width > thr + 0.5) { flush(); lines.push({ kind: 'song', text: r.text }); }  // 长歌名独占整行
-        else { cur.push(r.text); if (cur.length === 3) flush(); }
-      }
-      flush();
+      segs.forEach(sg => {
+        if (!sg.songs.length && !sg.label) return;
+        if (sg.label) lines.push({ kind: 'group', text: sg.label });
+        const list = sg.songs.slice().sort((a, b) => lenOf(a) - lenOf(b));   // 稳定排序：同字数保持输入顺序
+        // 同一字数的歌名归为一档；档内先补「余数」那一行，再满 3 个一行
+        // （这样每档从窄到宽，整体形成阶梯：1字4个 → 先1个，再3个）
+        const byClass = new Map();
+        list.forEach(r => {
+          const L = lenOf(r);
+          if (!byClass.has(L)) byClass.set(L, []);
+          byClass.get(L).push(r);
+        });
+        Array.from(byClass.keys()).sort((a, b) => a - b).forEach(L => {
+          const arr = byClass.get(L);
+          const shorts = arr.filter(r => !isLong(r));
+          const longs = arr.filter(r => isLong(r));
+          let i = 0;
+          const rem = shorts.length % 3;
+          if (rem) { lines.push({ kind: 'grid', items: shorts.slice(0, rem).map(r => r.text), slot }); i = rem; }
+          for (; i < shorts.length; i += 3) lines.push({ kind: 'grid', items: shorts.slice(i, i + 3).map(r => r.text), slot });
+          longs.forEach(r => lines.push({ kind: 'song', text: r.text }));   // 长歌名独占整行
+        });
+      });
       layoutH = lines.reduce((a, ln) => a + (ln.kind === 'group' ? gRowH : lh), 0);
     } else {
       lines = rows.map(r => ({ kind: r.type === 'group' ? 'group' : 'song', text: r.text }));
