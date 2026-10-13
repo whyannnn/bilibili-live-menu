@@ -724,10 +724,66 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const uid = () => Math.random().toString(36).slice(2, 10);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
+// 上传图片压缩：原图动辄 2-5MB，base64 后更肿。这里按最长边限制 + 有损压缩，
+// 典型 4MB 照片压到 100-300KB，localStorage 和渲染都不再被拖死。
+// 返回 Promise<dataURL>
+function compressImageFile(file, maxDim = 1600, quality = 0.85) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const src = ev.target.result;
+      const img = new Image();
+      img.onload = () => {
+        let w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) { resolve(src); return; }
+        const scale = Math.min(1, maxDim / Math.max(w, h));
+        // 小图且已经是轻量格式，直接原样返回
+        if (scale === 1 && src.length < 400 * 1024) { resolve(src); return; }
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        // PNG 保留透明（模板图需要），其余转 JPEG 大幅减小体积
+        const hasAlpha = file.type === 'image/png' || file.type === 'image/webp';
+        let out;
+        try {
+          out = hasAlpha ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', quality);
+        } catch (e) {
+          out = src;
+        }
+        // 压完反而更大就退回原图
+        resolve(out && out.length < src.length ? out : src);
+      };
+      img.onerror = () => resolve(src);
+      img.src = src;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+
+function fileSizeText(n) {
+  if (n < 1024) return n + 'B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + 'KB';
+  return (n / 1024 / 1024).toFixed(1) + 'MB';
+}
+
 /* ============== Persistence ============== */
 const STORAGE_KEY = 'bili-menu-v2';
+const LIB_KEY = 'bili-menu-lib-v1';
 
 function saveState() {
+  // 防抖：render() 会频繁调 saveState（拖拽、改样式、选中…），
+  // 每次都全量 JSON.stringify + localStorage.setItem（同步阻塞主线程）+ history.replaceState，
+  // 数据一大（尤其带 base64 图片）就会明显卡顿。这里合并成 200ms 一次。
+  if (_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(persistNow, 200);
+}
+
+function persistNow() {
+  if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
   try {
     const data = {
       m: state.mode,
@@ -749,7 +805,6 @@ function saveState() {
         lk: im.locked ? 1 : 0
       })),
       is: state.imageSelection,
-      il: state.imageLibrary.filter(e => e.isUpload).map(e => ({ n: e.name, u: e.url })),
       s: {
         lX: state.style.leftX, rX: state.style.rightX, tY: state.style.topY,
         cW: state.style.colWidth, rH: state.style.rowHeight, rG: state.style.rowGap,
@@ -765,8 +820,45 @@ function saveState() {
       z: state.zoom, px: state.panX, py: state.panY
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    saveImageLibrary();
     updateHash();
   } catch (e) { /* ignore quota */ }
+}
+
+let _persistTimer = null;
+// 关页面/切后台时把待写入的数据落地，避免防抖丢数据
+window.addEventListener('beforeunload', persistNow);
+document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
+
+// 上传图片库存独立键：体积大（base64），和主数据分开存，
+// 这样 hash / ?d= 加载路径也能单独还原它（#i<n> 引用需要它），且不用重复解析主 JSON。
+function saveImageLibrary() {
+  try {
+    const lib = state.imageLibrary.filter(e => e.isUpload).map(e => ({ n: e.name, u: e.url }));
+    localStorage.setItem(LIB_KEY, JSON.stringify(lib));
+  } catch (e) { /* quota */ }
+}
+
+function loadImageLibraryFromStorage() {
+  try {
+    let arr = null;
+    const raw = localStorage.getItem(LIB_KEY);
+    if (raw) arr = JSON.parse(raw);
+    if (!arr) {
+      // 老版本兼容：库混在主数据的 il 字段里，做一次迁移
+      const main = localStorage.getItem(STORAGE_KEY);
+      if (main) {
+        const d = JSON.parse(main);
+        if (d && Array.isArray(d.il)) arr = d.il;
+      }
+    }
+    if (!Array.isArray(arr)) return;
+    arr.forEach(e => {
+      if (e && e.u && !state.imageLibrary.some(x => x.url === e.u)) {
+        state.imageLibrary.push({ name: e.n || '图片', url: e.u, isUpload: true });
+      }
+    });
+  } catch (e) { /* ignore */ }
 }
 
 function loadState() {
@@ -799,14 +891,8 @@ function loadState() {
       locked: !!im.lk
     }));
     if (d.is) state.imageSelection = d.is;
-    // 还原用户上传的库图片（追加到内置库后面）
-    if (d.il && Array.isArray(d.il)) {
-      d.il.forEach(e => {
-        if (e.u && !state.imageLibrary.some(x => x.url === e.u)) {
-          state.imageLibrary.push({ name: e.n || '图片', url: e.u, isUpload: true });
-        }
-      });
-    }
+    // 上传图片库：独立键存（老数据回落到 il 字段）
+    loadImageLibraryFromStorage();
     if (d.s) {
       const s = state.style;
       if (d.s.lX != null) s.leftX = d.s.lX;
@@ -907,7 +993,7 @@ function updateHash() {
       state.mode[0], // 'v' or 'h'
       state.menu.items.map(it => {
         const a = [it.name, it.count, (it.side || 'left')[0]];
-        if (it.iconUrl) a.push(urlToGiftId(it.iconUrl));
+        if (it.iconUrl) a.push(urlToToken(it.iconUrl));
         if (it.iconType && it.iconType !== 'lib') a.push(it.iconType);
         if (it.x != null) a.push(Math.round(it.x));
         if (it.y != null) a.push(Math.round(it.y));
@@ -946,7 +1032,7 @@ function updateHash() {
     // imageItems: [[url, x, y, w, h, z?, 'L'?], ...] — 末尾 'L' 标记锁定 — 不存 name，库内模板按 url 重新匹配名字
     if (state.imageItems.length) {
       data.push(state.imageItems.map(im => {
-        const a = [im.url, Math.round(im.x), Math.round(im.y), Math.round(im.w), Math.round(im.h)];
+        const a = [urlToToken(im.url), Math.round(im.x), Math.round(im.y), Math.round(im.w), Math.round(im.h)];
         if (im.z != null && im.z !== 0) a.push(im.z);
         if (im.locked) {
           // 确保 z 占位存在，再追加锁定标记
@@ -957,11 +1043,22 @@ function updateHash() {
       }));
     }
     const hash = encodeState(data);
+    state.lastCopiedHash = hash;
+    // 性能：URL hash 太长时浏览器处理 history.replaceState 会非常慢（几千项数据能到几百 KB），
+    // 这里直接跳过写 hash——数据仍在 localStorage 里，只有"分享链接"能力受影响。
+    if (hash.length > 60000) {
+      if (!state._hashSkipped) {
+        state._hashSkipped = true;
+        const st = $('#icon-update-status');
+        if (st) st.textContent = '数据较大：已存本地，分享链接已省略';
+      }
+      return;
+    }
+    state._hashSkipped = false;
     const newUrl = location.pathname + location.search + '#' + hash;
     if (location.hash !== '#' + hash) {
       history.replaceState(null, '', newUrl);
     }
-    state.lastCopiedHash = hash;
   } catch (e) { /* hash too long */ }
 }
 
@@ -983,7 +1080,7 @@ function applyLoadedData(d) {
       if (d[1] && d[1].length) {
         state.menu.items = d[1].map(a => {
           let idx = 3, iconUrl = '', iconType = 'lib', x = null, y = null, style = null;
-          if (a.length > idx && typeof a[idx] === 'string' && a[idx]) { iconUrl = giftIdToUrl(a[idx]); idx++; }
+          if (a.length > idx && typeof a[idx] === 'string' && a[idx]) { iconUrl = tokenToUrl(a[idx]); idx++; }
           if (a.length > idx && typeof a[idx] === 'string') { iconType = a[idx]; idx++; }
           if (a.length > idx && typeof a[idx] === 'number') { x = a[idx]; idx++; }
           if (a.length > idx && typeof a[idx] === 'number') { y = a[idx]; idx++; }
@@ -1015,7 +1112,7 @@ function applyLoadedData(d) {
       // imageItems: 第 6 段（textItems 之后） — [url, x, y, w, h, z?, 'L'?]
       if (d[6] && Array.isArray(d[6])) {
         state.imageItems = d[6].map(a => {
-          const url = a[0] || '';
+          const url = tokenToUrl(a[0] || '');
           const libEntry = state.imageLibrary.find(e => e.url === url);
           const locked = a[a.length - 1] === 'L';
           return {
@@ -1033,7 +1130,7 @@ function applyLoadedData(d) {
       if (d.m) state.mode = d.m;
       if (d.i && d.i.length) state.menu.items = d.i.map(it => ({
         id: it.id || uid(), name: it.n || '', count: it.c || 0,
-        iconUrl: giftIdToUrl(it.u || ''), iconType: it.t || 'lib',
+        iconUrl: tokenToUrl(it.u || ''), iconType: it.t || 'lib',
         side: it.s || 'left', x: it.x, y: it.y, style: it.st || null
       }));
       if (d.ti) state.textItems = d.ti.map(t => ({
@@ -1152,9 +1249,15 @@ function render() {
   saveState();
 }
 
+// 描边用 text-shadow 叠加实现。描边宽 w 会生成约 πw² 个 shadow（w=5 就 80+ 个），
+// 每次 render 都重算会明显拖慢。这里按 "宽+色" 缓存结果。
+const _strokeCache = new Map();
 function buildStrokeShadows(width, color) {
   const w = Math.max(0, width);
   if (w === 0) return 'none';
+  const key = w + '|' + (color || '#000000');
+  const hit = _strokeCache.get(key);
+  if (hit) return hit;
   const shadows = [];
   for (let dy = -w; dy <= w; dy++) {
     for (let dx = -w; dx <= w; dx++) {
@@ -1163,7 +1266,10 @@ function buildStrokeShadows(width, color) {
       }
     }
   }
-  return shadows.join(', ');
+  const out = shadows.join(', ');
+  if (_strokeCache.size > 200) _strokeCache.clear(); // 简单防膨胀
+  _strokeCache.set(key, out);
+  return out;
 }
 
 function hexToRgba(hex, alpha) {
@@ -1537,19 +1643,25 @@ function setupTextItemDrag() {
     const scale = state.zoom;
     const dx = (e.clientX - startPt.x) / scale;
     const dy = (e.clientY - startPt.y) / scale;
+    // 性能：拖拽时直接改 DOM 的 left/top，不重建 DOM（每帧重建是拖拽卡顿的主因）
     startEls.forEach(rec => {
       const it = state.textItems.find(t => t.id === rec.id);
-      if (it) {
-        it.x = rec.x + dx;
-        it.y = rec.y + dy;
+      if (!it) return;
+      it.x = rec.x + dx;
+      it.y = rec.y + dy;
+      const dom = container.querySelector('.text-item[data-id="' + rec.id + '"]');
+      if (dom) {
+        dom.style.left = it.x + 'px';
+        dom.style.top = it.y + 'px';
       }
     });
-    renderTextItems();
   });
   window.addEventListener('mouseup', () => {
     if (dragging) {
       dragging = null;
       startEls = [];
+      // 拖拽结束后再统一重排/对齐/持久化
+      renderTextItems();
       saveState();
     }
   });
@@ -2334,14 +2446,18 @@ function setupItemDrag() {
     const scale = state.zoom;
     const dx = (e.clientX - dragStart.x) / scale;
     const dy = (e.clientY - dragStart.y) / scale;
+    // 性能：直接改 DOM 位置，不重建（重建会重新加载图标 <img> 造成闪烁+卡顿）
     dragStart.items.forEach(d => {
       const item = state.menu.items.find(it => it.id === d.id);
-      if (item) {
-        item.x = d.x + dx;
-        item.y = d.y + dy;
+      if (!item) return;
+      item.x = d.x + dx;
+      item.y = d.y + dy;
+      const dom = document.querySelector('.menu-item[data-id="' + d.id + '"]');
+      if (dom) {
+        dom.style.left = Math.round(item.x) + 'px';
+        dom.style.top = Math.round(item.y) + 'px';
       }
     });
-    renderMenuItems();
   });
 
   window.addEventListener('mouseup', () => {
@@ -2349,6 +2465,7 @@ function setupItemDrag() {
       dragging = false;
       document.body.classList.remove('panning');
       hideSnapGuides();
+      renderMenuItems();
       saveState();
     }
   });
@@ -2533,17 +2650,43 @@ function setupMarquee() {
 /* ============== Icon Picker ============== */
 let pickerTargetId = null;
 
+const GIFT_CACHE_KEY = 'bili-gift-cache-v1';
+const SHUVI_TS_KEY = 'bili-shuvi-ts-v1';
+const SHUVI_INTERVAL = 20 * 3600 * 1000; // 20 小时内不重复拉远端
+
 async function loadGifts() {
+  // 先用本地缓存的礼物库秒开（避免每次都要等 gifts.json 466KB 下载+解析）
   try {
-    const res = await fetch('gifts.json');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    state.gifts = Array.isArray(data) ? data : (data.gifts || []);
-  } catch (e) {
-    state.gifts = [];
+    const cached = localStorage.getItem(GIFT_CACHE_KEY);
+    if (cached) {
+      const arr = JSON.parse(cached);
+      if (Array.isArray(arr) && arr.length) state.gifts = arr;
+    }
+  } catch (e) { /* ignore */ }
+
+  if (state.gifts.length === 0) {
+    try {
+      const res = await fetch('gifts.json');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      state.gifts = Array.isArray(data) ? data : (data.gifts || []);
+      // 落缓存：下次秒开，不再等 466KB 下载
+      try { localStorage.setItem(GIFT_CACHE_KEY, JSON.stringify(state.gifts)); } catch (e) {}
+    } catch (e) {
+      state.gifts = [];
+    }
   }
-  // 顺便异步从 shuvi.moe 拉增量，丰富 state.gifts 图标库（不阻塞首屏，自动后台跑）
-  fetchShuviGifts(false).catch(() => {});
+
+  // 远端增量：不再每次打开都拉（allorigins 代理很慢，会拖慢首屏），20 小时一次
+  let lastTs = 0;
+  try { lastTs = parseInt(localStorage.getItem(SHUVI_TS_KEY) || '0', 10) || 0; } catch (e) {}
+  if (Date.now() - lastTs > SHUVI_INTERVAL) {
+    fetchShuviGifts(false).catch(() => {});
+  }
+}
+
+function markShuviChecked() {
+  try { localStorage.setItem(SHUVI_TS_KEY, String(Date.now())); } catch (e) {}
 }
 
 // 从 https://gift.shuvi.moe/api/gifts 拉最新礼物数据（CORS 不允许，用 allorigins 代理）
@@ -2567,6 +2710,10 @@ async function fetchShuviGifts(silent) {
   const existingIds = new Set(state.gifts.map(g => g.giftId));
   let added = 0;
   merged.forEach(g => { if (!existingIds.has(g.giftId)) { state.gifts.push(g); added++; } });
+  markShuviChecked();
+  // 索引失效重建
+  buildGiftMaps(); _giftMapLen = -1; _giftUrlMap = null; _giftIdMap = null;
+  try { localStorage.setItem(GIFT_CACHE_KEY, JSON.stringify(state.gifts)); } catch (e) {}
   if (!silent) {
     const st = $('#icon-update-status');
     if (st) st.textContent = `状态：远端拉到 ${added} 个新礼物，已补充到图标库`;
@@ -2600,18 +2747,54 @@ async function checkAndApplyIconUpdate() {
   }
 }
 
-// 图标 URL ↔ giftId 压缩：URL 里存 g<giftId>（6字符）而非完整 URL（90字符）
-function urlToGiftId(url) {
-  if (!url) return '';
-  const gift = state.gifts.find(g => g.webp === url);
-  return gift ? 'g' + gift.giftId : url;
+// 图标 URL 压缩：三种情况
+//   1) 官方礼物 CDN URL（90+ 字符）→ 'g<giftId>'（7 字符）
+//   2) base64 上传图（可能几 MB！）→ '#i<序号>' 引用 imageLibrary
+//   3) 其他 URL → 原样
+// 第 2 条是关键：base64 直接进 URL hash 会让 history.replaceState 处理几 MB 字符串，
+// 浏览器会彻底卡死。压缩成引用后 hash 只有几十字节，图片数据留在 localStorage。
+let _giftUrlMap = null;      // webp/imageBasicUrl → giftId
+let _giftIdMap = null;       // giftId → webp/imageBasicUrl
+let _giftMapLen = -1;
+function buildGiftMaps() {
+  if (_giftUrlMap && _giftMapLen === state.gifts.length) return;
+  const byUrl = new Map();
+  const byId = new Map();
+  for (const g of state.gifts) {
+    const u = g.webp || g.imageBasicUrl;
+    if (u) {
+      byUrl.set(u, g.giftId);
+      if (g.imageBasicUrl) byUrl.set(g.imageBasicUrl, g.giftId);
+    }
+    if (g.giftId != null) byId.set(String(g.giftId), u || '');
+  }
+  _giftUrlMap = byUrl;
+  _giftIdMap = byId;
+  _giftMapLen = state.gifts.length;
 }
-
-function giftIdToUrl(id) {
-  if (!id || !id.startsWith('g')) return id || '';
-  const giftId = parseInt(id.slice(1));
-  const gift = state.gifts.find(g => g.giftId === giftId);
-  return gift ? (gift.webp || '') : '';
+function urlToToken(url) {
+  if (!url) return '';
+  if (url.startsWith('data:')) {
+    const idx = state.imageLibrary.findIndex(e => e.url === url);
+    return idx >= 0 ? '#i' + idx : '';
+  }
+  buildGiftMaps();
+  const id = _giftUrlMap.get(url);
+  return id != null ? 'g' + id : url;
+}
+function tokenToUrl(token) {
+  if (!token) return '';
+  const s = String(token);
+  if (s.startsWith('#i')) {
+    const idx = parseInt(s.slice(2), 10);
+    const e = state.imageLibrary[idx];
+    return e ? e.url : '';
+  }
+  if (s[0] === 'g' && s.length > 1) {
+    buildGiftMaps();
+    return _giftIdMap.get(s.slice(1)) || '';
+  }
+  return s;
 }
 
 function openPicker(itemId) {
@@ -2620,15 +2803,31 @@ function openPicker(itemId) {
   renderPickerGrid('');
 }
 
+// 图标库上千条，一次性建上千个 DOM + 上千个 <img> 会卡好几秒。
+// 改成滚动增量渲染：先画 120 个，滚到底再续 120 个。
+const PICKER_PAGE = 120;
+let _pickerList = [];
+let _pickerShown = 0;
+
 function renderPickerGrid(search) {
   const grid = $('#picker-grid');
   grid.innerHTML = '';
-  const gifts = state.gifts.filter(g => !search || g.name.includes(search));
-  gifts.forEach(gift => {
+  _pickerList = state.gifts.filter(g => !search || g.name.includes(search));
+  _pickerShown = 0;
+  appendPickerPage();
+}
+
+function appendPickerPage() {
+  const grid = $('#picker-grid');
+  if (!grid) return;
+  const end = Math.min(_pickerShown + PICKER_PAGE, _pickerList.length);
+  const frag = document.createDocumentFragment();
+  for (let i = _pickerShown; i < end; i++) {
+    const gift = _pickerList[i];
     const cell = document.createElement('div');
     cell.className = 'icon-cell';
     cell.innerHTML = `
-      <div class="img-wrap"><img src="${gift.webp || gift.url || ''}" alt="" crossorigin="anonymous" referrerpolicy="no-referrer"></div>
+      <div class="img-wrap"><img loading="lazy" decoding="async" src="${gift.webp || gift.url || ''}" alt="" crossorigin="anonymous" referrerpolicy="no-referrer"></div>
       <div class="nm">${gift.name}</div>
     `;
     cell.onclick = () => {
@@ -2640,8 +2839,17 @@ function renderPickerGrid(search) {
         render();
       }
     };
-    grid.appendChild(cell);
-  });
+    frag.appendChild(cell);
+  }
+  grid.appendChild(frag);
+  _pickerShown = end;
+  if (_pickerShown < _pickerList.length) {
+    const more = document.createElement('div');
+    more.className = 'nm';
+    more.style.cssText = 'grid-column:1/-1;text-align:center;padding:12px 0;opacity:.6;';
+    more.textContent = `继续下滑加载更多（已显示 ${_pickerShown} / ${_pickerList.length}）`;
+    grid.appendChild(more);
+  }
 }
 
 /* ============== Daily icon check ============== */
@@ -2973,20 +3181,28 @@ function setupControls() {
   $('#picker-close').onclick = () => $('#picker-modal').classList.remove('open');
   $('#picker-modal').onclick = (e) => { if (e.target === $('#picker-modal')) $('#picker-modal').classList.remove('open'); };
   $('#picker-search').oninput = (e) => renderPickerGrid(e.target.value);
-  $('#picker-upload').onchange = (e) => {
+  // 滚动到底自动加载下一批图标
+  const pickerBody = document.querySelector('#picker-modal .modal-body');
+  if (pickerBody) {
+    pickerBody.addEventListener('scroll', () => {
+      if (_pickerShown >= _pickerList.length) return;
+      if (pickerBody.scrollTop + pickerBody.clientHeight >= pickerBody.scrollHeight - 120) {
+        appendPickerPage();
+      }
+    });
+  }
+  $('#picker-upload').onchange = async (e) => {
     const file = e.target.files[0];
     if (!file || !pickerTargetId) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const item = state.menu.items.find(it => it.id === pickerTargetId);
-      if (item) {
-        item.iconUrl = ev.target.result;
-        item.iconType = 'upload';
-        render();
-      }
-      $('#picker-modal').classList.remove('open');
-    };
-    reader.readAsDataURL(file);
+    const item = state.menu.items.find(it => it.id === pickerTargetId);
+    const dataUrl = await compressImageFile(file, 400, 0.9); // 图标小，最长边 400 足够
+    if (item && dataUrl) {
+      item.iconUrl = dataUrl;
+      item.iconType = 'upload';
+      render();
+    }
+    e.target.value = '';
+    $('#picker-modal').classList.remove('open');
   };
 
   // Resize
@@ -2999,18 +3215,23 @@ function setupControls() {
   // === 图片板块 ===
   // 上传按钮
   $('#upload-image-btn').onclick = () => $('#upload-image-input').click();
-  $('#upload-image-input').onchange = (e) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach(file => {
-      if (!file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        state.imageLibrary.push({ name: file.name, url: ev.target.result, isUpload: true });
-        renderImageLibrary();
-      };
-      reader.readAsDataURL(file);
-    });
+  $('#upload-image-input').onchange = async (e) => {
+    const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'));
     e.target.value = '';
+    if (!files.length) return;
+    let total = 0;
+    for (const file of files) {
+      const dataUrl = await compressImageFile(file);
+      if (!dataUrl) continue;
+      state.imageLibrary.push({ name: file.name, url: dataUrl, isUpload: true });
+      total += dataUrl.length;
+    }
+    if (total) {
+      renderImageLibrary();
+      saveImageLibrary();
+      const st = $('#icon-update-status');
+      if (st) st.textContent = `已导入 ${files.length} 张图（压缩后约 ${fileSizeText(total)}）`;
+    }
   };
   // 清空画布上所有图片
   $('#clear-images-btn').onclick = () => {
@@ -3135,6 +3356,9 @@ async function init() {
   // URL 里图标是 g<giftId> 压缩形式，applyLoadedData 需要 state.gifts 才能还原为 webp URL。
   // 否则 source mode 下图标会全部丢失。
   await loadGifts();
+
+  // 上传图片库必须先加载：hash / ?d= 里的图片是 '#i<序号>' 引用，还原时需要 state.imageLibrary
+  loadImageLibraryFromStorage();
 
   // ?reset=1：彻底重置。数据有三份拷贝（localStorage / URL hash / ?d= 参数），
   // 手动删 localStorage 没用——hash 优先级更高会把旧数据灌回来。
