@@ -1313,14 +1313,19 @@ function applyLoadedData(d) {
       if (d[5] && Array.isArray(d[5])) {
         state.textItems = d[5].map(a => {
           const o = a[3] && typeof a[3] === 'object' ? a[3] : {};
+          // 注意：o 里是短键名（sz/c/sw/sc/ff/fw/ls），必须显式映射回全名，
+          // 直接 ...o 展开只会在对象上多出 sz/c 等属性，fontSize 等永远回退默认值！
           return {
             id: uid(), text: a[0] || '', x: a[1] || 0, y: a[2] || 0,
-            w: null, fontSize: 32, color: '#ffffff',
-            strokeWidth: 2, strokeColor: '#000000',
-            fontFamily: '', fontWeight: '900',
+            w: o.w != null ? o.w : null,
+            fontSize: o.sz != null ? o.sz : 32,
+            color: o.c || '#ffffff',
+            strokeWidth: o.sw != null ? o.sw : 2,
+            strokeColor: o.sc || '#000000',
+            fontFamily: o.ff || '',
+            fontWeight: String(o.fw) === '400' ? '400' : '900',
             letterSpacing: o.ls != null ? o.ls : 0,
-            z: 0,
-            ...o
+            z: 0
           };
         });
       }
@@ -4305,6 +4310,19 @@ async function init() {
     if (fromHash) loaded = true;
   }
   if (!loaded) loadState();
+
+  // 一次性迁移：旧数据里的 20 号文字升到 22 号新默认。
+  // 只跑一次（有标记位），之后用户手动改成 20 的不会再被动改动。
+  try {
+    if (!localStorage.getItem('bili-menu-fs22-v1')) {
+      let fsChanged = false;
+      state.textItems.forEach(t => { if (t.fontSize === 20) { t.fontSize = 22; fsChanged = true; } });
+      state.menu.items.forEach(it => { if (it.style && it.style.fontSize === 20) { it.style.fontSize = 22; fsChanged = true; } });
+      if (state.style && state.style.fontSize === 20) { state.style.fontSize = 22; fsChanged = true; }
+      if (fsChanged) saveState();
+      try { localStorage.setItem('bili-menu-fs22-v1', '1'); } catch (e) {}
+    }
+  } catch (e) {}
 
   // Source mode：兼容 ?s（新）和 ?source=1（旧）
   if (isSource) {
