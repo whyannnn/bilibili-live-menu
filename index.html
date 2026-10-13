@@ -446,10 +446,6 @@ body.mode-horizontal #phone-overlay { display: none !important; }
         <button class="btn small primary" id="add-item">+ 添加项</button>
         <button class="btn small" id="clear-items">清空</button>
       </div>
-      <div class="row" style="margin-bottom: 6px;">
-        <button class="btn small" id="check-icon-update" title="从 gift.shuvi.moe 拉取新礼物图标，补充到「选择礼物图标」库里（不改动菜单玩法项）">🔄 检查更新</button>
-        <span id="icon-update-status" style="font-size:11px;color:var(--text-dim);margin-left:6px;"></span>
-      </div>
       <div class="items-list" id="items-list"></div>
     </div>
 
@@ -644,6 +640,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       <span>菜单: <span id="status-pos">0, 0</span></span>
       <span>项数: <span id="status-count">0</span></span>
       <span class="pill" id="status-mode">编辑器</span>
+      <span id="status-note" style="color:var(--accent,#e8a33d);"></span>
     </div>
   </div>
 
@@ -703,6 +700,7 @@ body.mode-horizontal #phone-overlay { display: none !important; }
       <div class="row" style="margin-bottom: 6px; font-size: 12px; color: var(--text-2);">点击库内图片加到画布中央</div>
       <div class="image-lib" id="image-lib"></div>
       <div class="row"><span class="hint">画布上：拖动平移、4 角等比缩放（按住 Shift 自由拉伸）、4 边自由拉伸，右键可调整图层顺序。</span></div>
+      <div class="row"><span class="hint" style="color:var(--accent,#e8a33d);">使用方法：Alt + 滚轮 进行画布放大缩小</span></div>
     </div>
   </aside>
 </div>
@@ -1264,8 +1262,7 @@ function updateHash() {
     if (hash.length > 60000) {
       if (!state._hashSkipped) {
         state._hashSkipped = true;
-        const st = $('#icon-update-status');
-        if (st) st.textContent = '数据较大：已存本地，分享链接已省略';
+        note('数据较大：已存本地，分享链接已省略');
       }
       return;
     }
@@ -1899,10 +1896,50 @@ function autoPosition(item, idx) {
   // 左侧玩法 x 固定在 leftX：宽度自适应撑开
   const estW = getItemWidth(item, st);
   const rightEdge = state.canvas.width - 40;
-  const baseX = side === 'left' ? leftX : (rightEdge - estW);
-  const sameSide = state.menu.items.filter(it => (it.side || 'left') === side);
-  const idxInSide = sameSide.indexOf(item);
-  return { x: baseX, y: s.topY + idxInSide * (rowH + gap) };
+  // 基准 Y：接在「同侧最底部的已有玩法」下面（如心动盲盒/舰长），
+  // 而不是从左上角 topY 开始叠。没有固定坐标的玩法时才回退 topY。
+  const listIdx = state.menu.items.indexOf(item);
+  let baseY = s.topY;
+  let refX = null;   // 基准玩法的 x：新玩法与它同列对齐
+  let autoBefore = 0; // 同侧排在本项之前、还没有固定坐标的玩法数（决定它在自动堆叠里的序号）
+  state.menu.items.forEach((it, i) => {
+    if (it === item || (it.side || 'left') !== side) return;
+    if (it.y != null && it.x != null) {
+      const bot = it.y + (getEffectiveStyle(it).rowHeight || rowH);
+      if (bot > baseY) { baseY = bot; refX = it.x; }
+    } else if (i < listIdx) {
+      autoBefore++;
+    }
+  });
+  // 左侧玩法与基准玩法同列（如正对心动盲盒下方）；没有基准时用 leftX
+  const baseX = side === 'left' ? (refX != null ? refX : leftX) : (rightEdge - estW);
+  return { x: baseX, y: baseY + gap + autoBefore * (rowH + gap) };
+}
+
+// 全量重排：按每一侧当前最顶部的玩法 Y 为锚点（保持块原来的起始位置，不跳回左上角），
+// 用当前行高/上下间距按列表顺序重排，并写回具体坐标。
+function relayoutAllItems() {
+  const s = state.style;
+  ['left', 'right'].forEach(sd => {
+    const list = state.menu.items.filter(it => (it.side || 'left') === sd);
+    if (!list.length) return;
+    let anchor = Infinity;
+    list.forEach(it => {
+      const p = getItemPos(it);
+      if (p.y < anchor) anchor = p.y;
+    });
+    if (!isFinite(anchor)) anchor = s.topY;
+    let y = anchor;
+    list.forEach(it => {
+      const st = getEffectiveStyle(it);
+      if (it.x == null) {
+        // 沿用 autoPosition 的同列对齐结果（与上方基准玩法对齐），而不是硬套 leftX
+        it.x = getItemPos(it).x;
+      }
+      it.y = y;
+      y += (st.rowHeight != null ? st.rowHeight : s.rowHeight) + s.rowGap;
+    });
+  });
 }
 
 // 用 canvas measureText 估算文字宽度，给 autoPosition / marquee / 对齐参考线用
@@ -2867,15 +2904,23 @@ function setupMarquee() {
   });
 }
 
+/* ============== 底部状态栏临时提示 ============== */
+let _noteTimer = null;
+function note(msg) {
+  const el = $('#status-note');
+  if (!el) return;
+  el.textContent = msg;
+  if (_noteTimer) clearTimeout(_noteTimer);
+  _noteTimer = setTimeout(() => { el.textContent = ''; }, 5000);
+}
+
 /* ============== Icon Picker ============== */
 let pickerTargetId = null;
 
-const GIFT_CACHE_KEY = 'bili-gift-cache-v1';
-const SHUVI_TS_KEY = 'bili-shuvi-ts-v1';
-const SHUVI_INTERVAL = 20 * 3600 * 1000; // 20 小时内不重复拉远端
+const GIFT_CACHE_KEY = 'bili-gift-cache-v2'; // v2：礼物库整体换成 shuvi「正在使用」快照，键升级强制刷新旧缓存
 
 async function loadGifts() {
-  // 先用本地缓存的礼物库秒开（避免每次都要等 gifts.json 466KB 下载+解析）
+  // 先用本地缓存的礼物库秒开（避免每次都要等 gifts.json 下载+解析）
   try {
     const cached = localStorage.getItem(GIFT_CACHE_KEY);
     if (cached) {
@@ -2890,81 +2935,14 @@ async function loadGifts() {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       state.gifts = Array.isArray(data) ? data : (data.gifts || []);
-      // 落缓存：下次秒开，不再等 466KB 下载
+      // 落缓存：下次秒开，不再等下载
       try { localStorage.setItem(GIFT_CACHE_KEY, JSON.stringify(state.gifts)); } catch (e) {}
     } catch (e) {
       state.gifts = [];
     }
   }
-
-  // 远端增量：不再每次打开都拉（allorigins 代理很慢，会拖慢首屏），20 小时一次
-  let lastTs = 0;
-  try { lastTs = parseInt(localStorage.getItem(SHUVI_TS_KEY) || '0', 10) || 0; } catch (e) {}
-  if (Date.now() - lastTs > SHUVI_INTERVAL) {
-    fetchShuviGifts(false).catch(() => {});
-  }
-}
-
-function markShuviChecked() {
-  try { localStorage.setItem(SHUVI_TS_KEY, String(Date.now())); } catch (e) {}
-}
-
-// 从 https://gift.shuvi.moe/api/gifts 拉最新礼物数据（CORS 不允许，用 allorigins 代理）
-// silent=true 时不更新 UI 提示
-async function fetchShuviGifts(silent) {
-  const url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://gift.shuvi.moe/api/gifts');
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error('shuvi HTTP ' + res.status);
-  const data = await res.json();
-  const items = (data && data.items) || [];
-  // shuvi 字段：giftId/name/price/coinType/imageBasicUrl；缺 webp/gif，前端用 imageBasicUrl 兜底
-  const merged = items.map(it => ({
-    giftId: it.giftId, name: it.name, price: it.price, coinType: it.coinType,
-    imageBasicUrl: it.imageBasicUrl,
-    webp: it.imageBasicUrl,        // 兜底：没有 webp 时用基础图
-    gif: it.imageBasicUrl,
-    imageDynamicUrl: it.imageBasicUrl,
-    frameAnimationUrl: null
-  }));
-  // 按 giftId 合并到现有 state.gifts
-  const existingIds = new Set(state.gifts.map(g => g.giftId));
-  let added = 0;
-  merged.forEach(g => { if (!existingIds.has(g.giftId)) { state.gifts.push(g); added++; } });
-  markShuviChecked();
-  // 索引失效重建
-  buildGiftMaps(); _giftMapLen = -1; _giftUrlMap = null; _giftIdMap = null;
-  try { localStorage.setItem(GIFT_CACHE_KEY, JSON.stringify(state.gifts)); } catch (e) {}
-  if (!silent) {
-    const st = $('#icon-update-status');
-    if (st) st.textContent = `状态：远端拉到 ${added} 个新礼物，已补充到图标库`;
-  }
-  return added;
-}
-
-// 从 shuvi.moe 拉取新礼物图标，补充到 state.gifts 图标库（不改动菜单玩法项）
-async function checkAndApplyIconUpdate() {
-  const st = $('#icon-update-status');
-  if (st) st.textContent = '状态：拉取中…';
-  let added = 0;
-  try {
-    // fetchShuviGifts 内部已按 giftId 去重合并到 state.gifts
-    const before = state.gifts.length;
-    await fetchShuviGifts(true);
-    added = state.gifts.length - before;
-  } catch (e) {
-    if (st) st.textContent = '状态：网络异常，请稍后再试';
-    return;
-  }
-  // 如果图标选择弹窗当前正打开着，重新渲染让用户立刻看到新图标
-  if ($('#picker-modal').classList.contains('open') && typeof renderPickerGrid === 'function') {
-    const searchVal = $('#picker-search') ? $('#picker-search').value : '';
-    renderPickerGrid(searchVal);
-  }
-  if (added > 0) {
-    if (st) st.textContent = `状态：新增 ${added} 个图标到「选择礼物图标」库`;
-  } else {
-    if (st) st.textContent = '状态：已是最新';
-  }
+  // 注：礼物库已改为静态快照（gift.shuvi.moe 的「正在使用」礼物，removedRunId === null），
+  // 不再运行时拉远端——shuvi 接口无 CORS 头、allorigins 代理已失效，拉了也拿不到。
 }
 
 // 图标 URL 压缩：三种情况
@@ -3829,23 +3807,6 @@ function plBindUI() {
   });
 }
 
-/* ============== Daily icon check ============== */
-// 每天 12:00 自动执行 checkAndApplyIconUpdate（仅编辑器模式）
-function scheduleDailyIconCheck() {
-  if (document.body.classList.contains('source-mode') || document.body.classList.contains('phone-mode')) return;
-  const computeDelay = () => {
-    const now = new Date();
-    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
-    if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
-    return next.getTime() - now.getTime();
-  };
-  const tick = () => {
-    checkAndApplyIconUpdate().catch(() => {});
-    setTimeout(tick, 24 * 3600 * 1000);
-  };
-  setTimeout(tick, computeDelay());
-}
-
 /* ============== Controls ============== */
 function setupControls() {
   // Mode
@@ -3875,17 +3836,6 @@ function setupControls() {
       state.selection = [];
       render();
     }
-  };
-
-  // 检查图标库更新
-  $('#check-icon-update').onclick = async (e) => {
-    e.target.disabled = true;
-    try { await checkAndApplyIconUpdate(); }
-    catch (err) {
-      const st = $('#icon-update-status');
-      if (st) st.textContent = '失败：' + (err.message || '网络异常');
-    }
-    finally { e.target.disabled = false; }
   };
 
   $('#clear-all').onclick = () => {
@@ -4007,22 +3957,15 @@ function setupControls() {
   bindSel('sel-shadow-color', 'shadowColor');
   bindSel('sel-text-color', 'textColor');
   bindSel('sel-letter-spacing', 'letterSpacing');
-  // rowGap 改全局：所有 item 的 y 置 null 让 autoPosition 用新 rowGap 实时重算
+  // rowGap 改全局：以每侧当前最顶部玩法为锚点整块重排（保持原始起始位置），
+  // 并清空所有 item 的 per-item rowGap 覆盖，避免历史 per-item 值干扰新全局值
   $('#sel-row-gap').oninput = () => {
     const v = parseInt($('#sel-row-gap').value) || 0;
     state.style.rowGap = v;
-    // 清空所有 item 的 per-item rowGap 覆盖，避免历史 per-item 值干扰新全局值
     state.menu.items.forEach(it => {
-      it.y = null;
       if (it.style && 'rowGap' in it.style) delete it.style.rowGap;
     });
-    render();
-    saveState();
-  };
-  $('#sel-row-gap').oninput = () => {
-    state.style.rowGap = parseInt($('#sel-row-gap').value) || 0;
-    // gap 改了之后所有 item 都得重排
-    state.menu.items.forEach(it => { it.x = null; it.y = null; });
+    relayoutAllItems();
     render();
     saveState();
   };
@@ -4206,8 +4149,7 @@ function setupControls() {
     if (total) {
       renderImageLibrary();
       saveImageLibrary();
-      const st = $('#icon-update-status');
-      if (st) st.textContent = `已导入 ${files.length} 张图（压缩后约 ${fileSizeText(total)}）`;
+      note(`已导入 ${files.length} 张图（压缩后约 ${fileSizeText(total)}）`);
     }
   };
   // 清空画布上所有图片
@@ -4388,9 +4330,6 @@ async function init() {
   plDraw();
   applyMode();
   render();
-
-  // 每天 12:00 自动检查图标更新（仅编辑器模式）
-  scheduleDailyIconCheck();
 
   // Source mode 兜底：用 setProperty + !important 把所有可能的容器强制透明。
   // 直播姬 CEF 对 CSS 选择器经常失效，必须内联样式强写并多帧兜底。
