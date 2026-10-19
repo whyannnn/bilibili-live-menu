@@ -3202,7 +3202,27 @@ function plParseSong(line) {
   t = t.trim();
   if (!t) return null;
   // 字数：按字符数（中文一字算一个，英文/数字按字符）
-  return { name: t, style, len: Array.from(t).length };
+  return { name: t, style, len: Array.from(t).length, lang: plLangOf(t) };
+}
+
+// ---- 语种判定：排序时统一把英文放最下面、日文再往下 ----
+// zh = 中文（含韩文/数字/其他），en = 纯英文（有拉丁字母且无汉字），ja = 含日文假名
+const PL_LANG_ORDER = { zh: 0, en: 1, ja: 2 };
+const PL_LANG_LABEL = { en: '英文', ja: '日文' };
+function plLangOf(name) {
+  const s = String(name || '');
+  if (/[\u3040-\u30ff\u31f0-\u31ff]/.test(s)) return 'ja';   // 平假名 / 片假名
+  if (/[A-Za-z]/.test(s) && !/[\u4e00-\u9fff\u3400-\u4dbf]/.test(s)) return 'en';  // 纯拉丁、无汉字
+  return 'zh';
+}
+// 排序用的「字母数」：英文按 a-zA-Z 个数（空格/符号不计），日文按字符数
+function plLangLen(name, lang) {
+  const n = String(name || '');
+  if (lang === 'en') {
+    const m = n.match(/[A-Za-z]/g);
+    return m ? m.length : Array.from(n).length;
+  }
+  return Array.from(n).length;
 }
 // 取所有歌曲（跳过 ## 分组标题行；一行多首会被拆开）
 function plSongsParsed() {
@@ -3234,12 +3254,28 @@ function plRows() {
   const rows = [];
   let counter = Math.max(1, +plState.numStart || 1);
   const songRow = (s) => {
-    rows.push({ type: 'song', text: (plState.number ? plNumLabel(counter++) + ' ' : '') + s.name, name: s.name, len: s.len });
+    rows.push({ type: 'song', text: (plState.number ? plNumLabel(counter++) + ' ' : '') + s.name, name: s.name, len: s.len, lang: s.lang || 'zh' });
   };
   const groupRow = (label) => {
     if (plState.showGroupTitle && label) rows.push({ type: 'group', text: label });
   };
-  const byLen = (arr) => arr.slice().sort((a, b) => a.len - b.len);
+  // 排序：先按语种（中文 → 英文 → 日文），英文按字母数、日文按字符数、中文按字数
+  const sortSongs = (arr) => arr.slice().sort((a, b) => {
+    const la = PL_LANG_ORDER[a.lang || 'zh'], lb = PL_LANG_ORDER[b.lang || 'zh'];
+    if (la !== lb) return la - lb;
+    const ga = (a.lang === 'en' || a.lang === 'ja') ? plLangLen(a.name, a.lang) : a.len;
+    const gb = (b.lang === 'en' || b.lang === 'ja') ? plLangLen(b.name, b.lang) : b.len;
+    return ga - gb || a.len - b.len;
+  });
+  // 英文 / 日文区块：永远接在所有中文歌之后
+  const emitLangBlocks = (list) => {
+    ['en', 'ja'].forEach(lg => {
+      const arr = list.filter(s => (s.lang || 'zh') === lg);
+      if (!arr.length) return;
+      groupRow(PL_LANG_LABEL[lg]);
+      sortSongs(arr).forEach(songRow);
+    });
+  };
 
   // ---- 作者用 ## 标了分组 → 完全尊重作者的结构 ----
   // 分组顺序＝输入顺序；组内歌曲：保持顺序模式下按输入顺序，其余模式按字数升序
@@ -3249,7 +3285,7 @@ function plRows() {
     let curLabel = '';
     const flush = () => {
       if (curLabel) groupRow(curLabel);
-      const arr = (plState.arrange === 'order') ? curSongs : byLen(curSongs);
+      const arr = (plState.arrange === 'order') ? curSongs : sortSongs(curSongs);
       arr.forEach(songRow);
       curSongs = []; curLabel = '';
     };
@@ -3273,25 +3309,29 @@ function plRows() {
   const useLen = mode === 'len' || (mode === 'style' && !hasStyle);
 
   if (useLen) {
-    // 一个字一组、两个字一组……按字数升序
-    const lens = Array.from(new Set(songs.map(s => s.len))).sort((a, b) => a - b);
+    // 中文：一个字一组、两个字一组……按字数升序；英文/日文统一挪到最下面
+    const zh = songs.filter(s => (s.lang || 'zh') === 'zh');
+    const lens = Array.from(new Set(zh.map(s => s.len))).sort((a, b) => a - b);
     lens.forEach(L => {
       groupRow(plLenLabel(L));
-      byLen(songs.filter(s => s.len === L)).forEach(songRow);
+      sortSongs(zh.filter(s => s.len === L)).forEach(songRow);
     });
+    emitLangBlocks(songs);
   } else if (mode === 'style' && hasStyle) {
     // 先按风格分组（风格顺序＝首次出现顺序），每个风格内再按字数升序
+    const zh = songs.filter(s => (s.lang || 'zh') === 'zh');
     const order = [];
     const map = new Map();
-    songs.forEach(s => {
+    zh.forEach(s => {
       const k = s.style || '其他';
       if (!map.has(k)) { map.set(k, []); order.push(k); }
       map.get(k).push(s);
     });
     order.forEach(k => {
       groupRow(k);
-      byLen(map.get(k)).forEach(songRow);
+      sortSongs(map.get(k)).forEach(songRow);
     });
+    emitLangBlocks(songs);   // 英文 → 日文，接在最下面
   } else {
     songs.forEach(songRow);
   }
@@ -3564,30 +3604,37 @@ function plDraw() {
       let rowW = Math.min(availW, Math.max(maxDispW, maxShortDisp * 3));
       if (!(rowW > 0)) rowW = availW;
       const slot = rowW / 3;
-      const bucketOf = (r) => Math.round(wName(r) / fs);   // 一个汉字宽为一档（英文按等价汉字宽度折算）
 
       lines = [];
       segs.forEach(sg => {
         if (!sg.songs.length && !sg.label) return;
         if (sg.label) lines.push({ kind: 'group', text: sg.label });
-        const list = sg.songs.slice().sort((a, b) => wName(a) - wName(b));   // 稳定排序：等宽保持输入顺序
-        // 宽度同档的归为一组；组内先补「余数」那一行，再满 3 个一行
-        // （这样每组从窄到宽，整体形成阶梯）
-        const byBucket = new Map();
-        list.forEach(r => {
-          const b = bucketOf(r);
-          if (!byBucket.has(b)) byBucket.set(b, []);
-          byBucket.get(b).push(r);
-        });
-        Array.from(byBucket.keys()).sort((a, b) => a - b).forEach(b => {
-          const arr = byBucket.get(b);
-          const shorts = arr.filter(r => !isLong(r));
-          const longs = arr.filter(r => isLong(r));
-          let i = 0;
-          const rem = shorts.length % 3;
-          if (rem) { lines.push({ kind: 'grid', items: shorts.slice(0, rem).map(r => r.text), slot }); i = rem; }
-          for (; i < shorts.length; i += 3) lines.push({ kind: 'grid', items: shorts.slice(i, i + 3).map(r => r.text), slot });
-          longs.forEach(r => lines.push({ kind: 'song', text: r.text }));   // 长歌名独占整行
+        // 语种分块：中文 → 英文 → 日文。英文按字母数分档、日文按字符数分档，
+        // 中文仍按渲染宽度分档（阶梯）。这样英文/日文永远在最下面单独成块。
+        ['zh', 'en', 'ja'].forEach(lg => {
+          const block = sg.songs.filter(r => (r.lang || 'zh') === lg);
+          if (!block.length) return;
+          if (lg !== 'zh' && plState.showGroupTitle) lines.push({ kind: 'group', text: PL_LANG_LABEL[lg] });
+          const sortKeyOf = (r) => (lg === 'zh' ? wName(r) : plLangLen(r.name, lg) * 1000 + wName(r));
+          const bucketOfLang = (r) => (lg === 'zh' ? Math.round(wName(r) / fs) : plLangLen(r.name, lg));
+          const list = block.slice().sort((a, b) => sortKeyOf(a) - sortKeyOf(b));   // 稳定排序：同档保持输入顺序
+          // 同档归为一组；组内先补「余数」那一行，再满 3 个一行（整体形成阶梯）
+          const byBucket = new Map();
+          list.forEach(r => {
+            const b = bucketOfLang(r);
+            if (!byBucket.has(b)) byBucket.set(b, []);
+            byBucket.get(b).push(r);
+          });
+          Array.from(byBucket.keys()).sort((a, b) => a - b).forEach(b => {
+            const arr = byBucket.get(b);
+            const shorts = arr.filter(r => !isLong(r));
+            const longs = arr.filter(r => isLong(r));
+            let i = 0;
+            const rem = shorts.length % 3;
+            if (rem) { lines.push({ kind: 'grid', items: shorts.slice(0, rem).map(r => r.text), slot }); i = rem; }
+            for (; i < shorts.length; i += 3) lines.push({ kind: 'grid', items: shorts.slice(i, i + 3).map(r => r.text), slot });
+            longs.forEach(r => lines.push({ kind: 'song', text: r.text }));   // 长歌名独占整行
+          });
         });
       });
       layoutH = lines.reduce((a, ln) => a + (ln.kind === 'group' ? gRowH : lh), 0);
